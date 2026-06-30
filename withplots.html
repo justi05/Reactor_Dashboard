@@ -1,0 +1,1861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lab Reactor Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f5f6fa; --surface: #ffffff; --border: #e2e4ea; --text: #1a1d23;
+  --muted: #6b7280; --accent: #2563eb; --accent-light: #eff6ff;
+  --green: #16a34a; --green-light: #f0fdf4; --red: #dc2626; --red-light: #fef2f2;
+  --amber: #d97706; --amber-light: #fffbeb; --radius: 10px; --shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* HEADER */
+header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 60px; position: sticky; top: 0; z-index: 100; }
+.logo { font-size: 1.05rem; font-weight: 600; }
+.logo span { color: var(--accent); }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.date-display { font-size: 0.82rem; color: var(--muted); background: var(--bg); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); }
+.conn-status { font-size: 0.75rem; display: flex; align-items: center; gap: 5px; }
+.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #ccc; }
+.conn-dot.connected { background: var(--green); }
+.conn-dot.error { background: var(--red); }
+
+/* NAV TABS */
+.tab-nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 2rem; display: flex; gap: 0; }
+.tab-btn { padding: 14px 22px; font-size: 0.88rem; font-weight: 500; border: none; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.15s; }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover:not(.active) { color: var(--text); background: var(--bg); }
+
+/* MODAL */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: var(--surface); border-radius: 14px; padding: 2rem; width: 520px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+.modal h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
+.modal p { font-size: 0.83rem; color: var(--muted); margin-bottom: 1.2rem; line-height: 1.5; }
+.modal label { display: block; font-size: 0.8rem; font-weight: 500; margin-bottom: 4px; color: var(--muted); }
+.modal input, .modal select, .modal textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; margin-bottom: 12px; outline: none; font-family: inherit; }
+.modal input:focus, .modal select:focus, .modal textarea:focus { border-color: var(--accent); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 0.5rem; }
+
+/* BUTTONS */
+.btn { padding: 8px 18px; border-radius: 7px; font-size: 0.85rem; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: background 0.15s; }
+.btn:hover { background: var(--bg); }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-success { background: var(--green); color: white; border-color: var(--green); }
+.btn-success:hover { background: #15803d; }
+.btn-danger { background: var(--red); color: white; border-color: var(--red); }
+.btn-danger:hover { background: #b91c1c; }
+.btn-sm { padding: 5px 12px; font-size: 0.78rem; }
+
+/* MAIN */
+main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 3rem; }
+.tab-section { display: none; }
+.tab-section.active { display: block; }
+
+/* ── BOOKING SECTION ─────────────────────────────────────────── */
+.booking-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 12px; }
+.booking-top h2 { font-size: 1rem; font-weight: 600; }
+.booking-top p { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+.reactor-tabs { display: flex; gap: 8px; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.rtab { padding: 7px 18px; border-radius: 20px; font-size: 0.83rem; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); transition: all 0.15s; }
+.rtab.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+.booking-date-row { display: flex; align-items: center; gap: 10px; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.booking-date-row label { font-size: 0.83rem; font-weight: 500; color: var(--muted); }
+.booking-date-row input[type=date] { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; background: var(--surface); outline: none; }
+.slots-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 1.2rem; }
+.slots-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.slots-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.slot-chip { padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; font-weight: 500; }
+.slot-free { background: var(--green-light); color: var(--green); border: 1px solid #bbf7d0; }
+.slot-booked { background: var(--red-light); color: var(--red); border: 1px solid #fecaca; }
+.slot-empty { color: var(--muted); font-size: 0.82rem; font-style: italic; }
+.bookings-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 1.2rem; }
+.bookings-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; }
+.cancel-badge { display: inline-block; background: var(--red-light); color: var(--red); font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid #fecaca; cursor: pointer; }
+.cancel-badge:hover { background: var(--red); color: white; }
+.confirmed-badge { display: inline-block; background: var(--green-light); color: var(--green); font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-grid .full { grid-column: 1 / -1; }
+.form-field label { display: block; font-size: 0.78rem; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+.form-field input, .form-field select, .form-field textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; outline: none; font-family: inherit; background: var(--bg); color: var(--text); }
+.form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--accent); background: white; }
+.conflict-alert { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 0.83rem; color: var(--red); margin-bottom: 12px; display: none; }
+.conflict-alert.show { display: block; }
+.success-alert { background: var(--green-light); border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-size: 0.83rem; color: var(--green); margin-bottom: 12px; display: none; }
+.success-alert.show { display: block; }
+.booking-download-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.booking-download-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; }
+.bdl-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.bdl-filters select, .bdl-filters input { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.83rem; background: var(--surface); outline: none; }
+.bid { font-size: 0.7rem; color: var(--muted); font-family: monospace; }
+
+/* ── DAILY LOG STYLES ─────────────────────────────────────────── */
+.top-row { display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.top-row label { font-size: 0.82rem; font-weight: 500; color: var(--muted); }
+.top-row input[type=date] { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; background: var(--surface); color: var(--text); outline: none; }
+.reactor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(530px, 1fr)); gap: 1.2rem; margin-bottom: 1.5rem; }
+.reactor-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.reactor-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.reactor-name { display: flex; align-items: center; gap: 8px; }
+.reactor-dot { width: 10px; height: 10px; border-radius: 50%; }
+.r1 .reactor-dot { background: #2563eb; } .r2 .reactor-dot { background: #7c3aed; }
+.r3 .reactor-dot { background: #0891b2; } .r4 .reactor-dot { background: #059669; }
+.reactor-name strong { font-size: 0.95rem; font-weight: 600; }
+.status-badge { font-size: 0.72rem; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+.status-running { background: var(--green-light); color: var(--green); }
+.status-idle { background: #f3f4f6; color: var(--muted); }
+.reactor-body { padding: 16px 18px; }
+
+/* No booking banner */
+.no-booking-banner { background: var(--green-light); border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; font-size: 0.82rem; color: var(--green); font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+
+/* Overall time row */
+.time-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-end; }
+.time-field { flex: 1; }
+.time-field label { display: block; font-size: 0.74rem; font-weight: 500; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+.time-field input { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.88rem; outline: none; background: var(--bg); }
+.time-field input:focus { border-color: var(--accent); background: white; }
+.time-field input[readonly] { background: #f0fdf4; color: var(--green); font-weight: 600; border-color: #bbf7d0; cursor: default; }
+
+/* Overall stats bar */
+.stats-bar { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+.stat-box { flex: 1; padding: 10px 14px; text-align: center; border-right: 1px solid var(--border); }
+.stat-box:last-child { border-right: none; }
+.stat-label { font-size: 0.7rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-val { font-size: 1.15rem; font-weight: 600; margin-top: 2px; }
+.stat-val.green { color: var(--green); } .stat-val.red { color: var(--red); } .stat-val.amber { color: var(--amber); }
+.prog-wrap { margin-bottom: 14px; }
+.prog-label { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-bottom: 5px; }
+.prog-track { height: 8px; background: var(--red-light); border-radius: 4px; overflow: hidden; border: 1px solid #fecaca; }
+.prog-fill { height: 100%; background: var(--green); border-radius: 4px; transition: width 0.4s; }
+
+/* BOOKING SLOTS in daily log */
+.slots-section-label { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.booking-slot-block { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+.booking-slot-header { background: var(--accent-light); padding: 9px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+.booking-slot-title { font-size: 0.82rem; font-weight: 600; color: var(--accent); }
+.booking-slot-meta { font-size: 0.75rem; color: var(--muted); }
+.booking-slot-body { padding: 12px 14px; }
+
+/* Slot mini stats */
+.slot-stats-bar { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+.slot-stat { flex: 1; padding: 7px 10px; text-align: center; border-right: 1px solid var(--border); }
+.slot-stat:last-child { border-right: none; }
+.slot-stat-label { font-size: 0.65rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.03em; }
+.slot-stat-val { font-size: 0.95rem; font-weight: 600; margin-top: 1px; }
+
+/* Downtime rows */
+.section-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.downtime-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.downtime-item-wrap { margin-bottom: 2px; }
+.downtime-item { display: flex; gap: 6px; align-items: center; }
+.downtime-item input[type=time] { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; width: 90px; background: var(--bg); outline: none; }
+.downtime-item input[type=time]:focus { border-color: var(--accent); background: white; }
+.downtime-item input[type=time].invalid { border-color: var(--red); background: var(--red-light); }
+.slot-range-hint { font-size: 0.7rem; color: var(--muted); margin-bottom: 6px; }
+.dt-error-msg { font-size: 0.75rem; color: var(--red); margin: -2px 0 6px; display: flex; align-items: center; gap: 4px; }
+.downtime-item input[type=text] { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; background: var(--bg); outline: none; }
+.downtime-item input[type=text]:focus { border-color: var(--accent); background: white; }
+.downtime-item .remove-btn { width: 24px; height: 24px; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 1rem; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.downtime-item .remove-btn:hover { background: var(--red-light); color: var(--red); }
+.add-row-btn { font-size: 0.78rem; color: var(--accent); background: none; border: none; cursor: pointer; padding: 2px 0; display: flex; align-items: center; gap: 4px; font-weight: 500; }
+.add-row-btn:hover { opacity: 0.75; }
+.notes-area { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.83rem; resize: vertical; min-height: 52px; background: var(--bg); font-family: inherit; outline: none; color: var(--text); }
+.notes-area:focus { border-color: var(--accent); background: white; }
+.save-row { display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.save-btn { padding: 7px 20px; background: var(--accent); color: white; border: none; border-radius: 7px; font-size: 0.83rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.save-btn:hover { background: #1d4ed8; }
+.save-btn.saved { background: var(--green); }
+.daily-notes-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 1.5rem; }
+.daily-notes-card h3 { font-size: 0.88rem; font-weight: 600; margin-bottom: 10px; }
+.monthly-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.monthly-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px; }
+.monthly-header h3 { font-size: 0.92rem; font-weight: 600; }
+.month-select { display: flex; gap: 8px; align-items: center; }
+.month-select select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.83rem; background: var(--surface); outline: none; }
+table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+th { text-align: left; padding: 8px 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); background: var(--bg); }
+td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg); }
+.tag-run { display: inline-block; background: var(--green-light); color: var(--green); font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
+.tag-idle { display: inline-block; background: #f3f4f6; color: var(--muted); font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
+.download-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+
+/* TOAST */
+#toast { position: fixed; bottom: 24px; right: 24px; background: #1a1d23; color: white; padding: 10px 18px; border-radius: 8px; font-size: 0.83rem; font-weight: 500; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 999; }
+#toast.show { opacity: 1; }
+
+/* ── ANALYSIS SECTION ─────────────────────────────────────────── */
+.analysis-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 12px; }
+.analysis-top h2 { font-size: 1rem; font-weight: 600; }
+.analysis-top p { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+.analysis-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.analysis-filters label { font-size: 0.82rem; font-weight: 500; color: var(--muted); }
+.analysis-filters select, .analysis-filters input[type=date] { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; background: var(--surface); outline: none; }
+.range-chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.range-chip { padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); transition: all 0.15s; }
+.range-chip.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+.custom-range-row { display: none; align-items: center; gap: 8px; }
+.custom-range-row.show { display: flex; }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); }
+.kpi-label { font-size: 0.74rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.kpi-val { font-size: 1.5rem; font-weight: 700; }
+.kpi-val.green { color: var(--green); } .kpi-val.red { color: var(--red); } .kpi-val.amber { color: var(--amber); } .kpi-val.accent { color: var(--accent); }
+.kpi-sub { font-size: 0.74rem; color: var(--muted); margin-top: 3px; }
+
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.2rem; margin-bottom: 1.2rem; }
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.chart-card.full-width { grid-column: 1 / -1; }
+.chart-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; }
+.chart-card .chart-sub { font-size: 0.74rem; color: var(--muted); margin-bottom: 12px; }
+.chart-canvas-wrap { position: relative; height: 280px; }
+.chart-canvas-wrap.tall { height: 340px; }
+.chart-empty-note { font-size: 0.82rem; color: var(--muted); font-style: italic; text-align: center; padding: 40px 0; }
+
+.reactor-filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.rfilter-chip { padding: 5px 13px; border-radius: 16px; font-size: 0.76rem; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: var(--bg); color: var(--muted); }
+.rfilter-chip.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+
+.summary-table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.summary-table-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; }
+.eff-pill { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 20px; }
+.eff-good { background: var(--green-light); color: var(--green); }
+.eff-mid { background: var(--amber-light); color: var(--amber); }
+.eff-poor { background: var(--red-light); color: var(--red); }
+
+@media (max-width: 600px) {
+  .reactor-grid { grid-template-columns: 1fr; }
+  .time-row { flex-wrap: wrap; }
+  main { padding: 1rem; }
+  .form-grid { grid-template-columns: 1fr; }
+  .chart-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Lab <span>Reactor</span> Dashboard</div>
+  <div class="header-right">
+    <div class="conn-status" id="conn-status">
+      <div class="conn-dot" id="conn-dot"></div>
+      <span id="conn-label">Connecting...</span>
+    </div>
+    <div class="date-display" id="today-label"></div>
+  </div>
+</header>
+
+<!-- NAV TABS — Booking first, Daily Log second -->
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('booking', this)">📅 Reactor Booking</button>
+  <button class="tab-btn" onclick="switchTab('dashboard', this)">📊 Daily Log</button>
+  <button class="tab-btn" onclick="switchTab('analysis', this)">📈 Analysis</button>
+</div>
+
+<!-- FIREBASE BANNER -->
+<div id="firebase-banner" style="display:none;background:#fff7ed;border-bottom:1px solid #fed7aa;padding:10px 2rem;align-items:center;gap:10px;font-size:0.83rem;color:#92400e;">
+  ⚙️ <strong style="color:#78350f">First time setup:</strong> Connect Firebase so all team members share the same data.
+  <button onclick="openConfig()" style="margin-left:auto;background:#ea580c;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:500;">Connect Firebase</button>
+</div>
+
+<!-- CONFIG MODAL -->
+<div class="modal-overlay" id="config-modal">
+  <div class="modal">
+    <h2>🔥 Connect Firebase</h2>
+    <p>Enter your Firebase project details. Saved in <strong>your browser only</strong> — never in the code or on GitHub. You only need to do this <strong>once per device</strong>.</p>
+    <label>API Key</label><input type="text" id="cfg-apiKey" placeholder="AIzaSy...">
+    <label>Project ID</label><input type="text" id="cfg-projectId" placeholder="testreactor-aaec3">
+    <label>Database URL (Realtime Database)</label><input type="text" id="cfg-dbUrl" placeholder="https://your-project-default-rtdb.firebasedatabase.app">
+    <div style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+      📌 Firebase Console → Project Settings → Your apps → SDK setup & configuration
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeConfig()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveConfig()">Save & Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- CANCEL BOOKING MODAL -->
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal">
+    <h2>Cancel Booking</h2>
+    <p>Are you sure you want to cancel this booking? This cannot be undone.</p>
+    <div id="cancel-booking-info" style="background:var(--bg);border-radius:8px;padding:12px;font-size:0.83rem;margin-bottom:16px;"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeCancelModal()">Keep Booking</button>
+      <button class="btn btn-danger" onclick="confirmCancel()">Yes, Cancel It</button>
+    </div>
+  </div>
+</div>
+
+<main>
+
+<!-- ═══════════════════════════════════════════════════
+     TAB 1: BOOKING SYSTEM (now first)
+════════════════════════════════════════════════════ -->
+<div id="tab-booking" class="tab-section active">
+  <div class="booking-top">
+    <div>
+      <h2>Reactor Booking System</h2>
+      <p>Book a reactor for your experiment. Check available slots before booking.</p>
+    </div>
+    <button class="btn btn-primary" onclick="openBookingForm()">+ New Booking</button>
+  </div>
+
+  <div class="reactor-tabs" id="booking-reactor-tabs">
+    <button class="rtab active" onclick="selectBookingReactor('R1',this)">Reactor 1</button>
+    <button class="rtab" onclick="selectBookingReactor('R2',this)">Reactor 2</button>
+    <button class="rtab" onclick="selectBookingReactor('R3',this)">Reactor 3</button>
+    <button class="rtab" onclick="selectBookingReactor('R4',this)">Reactor 4</button>
+    <button class="rtab" onclick="selectBookingReactor('ALL',this)">All Reactors</button>
+  </div>
+
+  <div class="booking-date-row">
+    <label>Select date to view:</label>
+    <input type="date" id="booking-view-date">
+    <button class="btn" onclick="refreshBookingView()">View</button>
+    <button class="btn btn-primary" onclick="setBookingToday()">Today</button>
+  </div>
+
+  <div class="slots-card">
+    <h4>🟢 Available Slots — <span id="slots-reactor-label">Reactor 1</span> on <span id="slots-date-label">—</span></h4>
+    <div class="slots-grid" id="slots-grid"><span class="slot-empty">Select a date to see available slots</span></div>
+  </div>
+
+  <div class="bookings-card">
+    <h4>📋 Bookings — <span id="bookings-day-label">—</span></h4>
+    <div style="overflow-x:auto">
+      <table id="bookings-table">
+        <thead><tr>
+          <th>Booking ID</th><th>Reactor</th><th>Date</th><th>From</th><th>To</th><th>Duration</th>
+          <th>Name</th><th>Designation</th><th>Organization</th><th>Purpose</th><th>Status</th><th>Action</th>
+        </tr></thead>
+        <tbody id="bookings-tbody"><tr><td colspan="12" style="text-align:center;color:var(--muted);padding:20px">Select a date to view bookings</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BOOKING FORM -->
+  <div id="booking-form-card" class="bookings-card" style="display:none">
+    <h4>📝 New Booking Request</h4>
+    <div class="conflict-alert" id="conflict-alert"></div>
+    <div class="success-alert" id="success-alert"></div>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Select Reactor *</label>
+        <select id="book-reactor">
+          <option value="R1">Reactor 1</option><option value="R2">Reactor 2</option>
+          <option value="R3">Reactor 3</option><option value="R4">Reactor 4</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Date * (today or future only)</label>
+        <input type="date" id="book-date">
+      </div>
+      <div class="form-field">
+        <label>Start Time (24hr) *</label>
+        <input type="time" id="book-start">
+      </div>
+      <div class="form-field">
+        <label>End Time (24hr) *</label>
+        <input type="time" id="book-end">
+      </div>
+      <div class="form-field">
+        <label>Your Name *</label>
+        <input type="text" id="book-name" placeholder="Full name">
+      </div>
+      <div class="form-field">
+        <label>Designation *</label>
+        <input type="text" id="book-designation" placeholder="e.g. Research Scientist, PhD Student">
+      </div>
+      <div class="form-field full">
+        <label>Organization / Department *</label>
+        <input type="text" id="book-org" placeholder="e.g. Dept. of Chemical Engineering, IIT Delhi">
+      </div>
+      <div class="form-field full">
+        <label>Purpose / Experiment Description *</label>
+        <textarea id="book-purpose" rows="2" placeholder="Briefly describe what the reactor will be used for..."></textarea>
+      </div>
+      <div class="form-field full">
+        <label>Contact / Email (optional)</label>
+        <input type="text" id="book-contact" placeholder="email@example.com or phone number">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;padding-top:14px;border-top:1px solid var(--border)">
+      <button class="btn" onclick="closeBookingForm()">Cancel</button>
+      <button class="btn btn-primary" onclick="checkAndBook()">Check & Confirm Booking</button>
+    </div>
+  </div>
+
+  <!-- DOWNLOAD BOOKINGS -->
+  <div class="booking-download-card">
+    <h4>⬇ Download Booking Records</h4>
+    <div class="bdl-filters">
+      <label style="font-size:0.82rem;font-weight:500;color:var(--muted)">Month:</label>
+      <select id="bdl-month"></select>
+      <select id="bdl-year"></select>
+      <label style="font-size:0.82rem;font-weight:500;color:var(--muted)">Reactor:</label>
+      <select id="bdl-reactor">
+        <option value="ALL">All Reactors</option>
+        <option value="R1">Reactor 1</option><option value="R2">Reactor 2</option>
+        <option value="R3">Reactor 3</option><option value="R4">Reactor 4</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-success" onclick="downloadBookingsCSV()">⬇ Download CSV</button>
+      <button class="btn btn-primary" onclick="downloadBookingsPDF()">⬇ Download PDF Report</button>
+    </div>
+  </div>
+</div><!-- end tab-booking -->
+
+<!-- ═══════════════════════════════════════════════════
+     TAB 2: DAILY LOG (now second)
+════════════════════════════════════════════════════ -->
+<div id="tab-dashboard" class="tab-section">
+  <div class="top-row">
+    <label>Viewing date:</label>
+    <input type="date" id="selected-date">
+    <button class="btn" onclick="loadDate()">Load</button>
+    <button class="btn btn-primary" onclick="setToday()">Today</button>
+  </div>
+  <div class="reactor-grid" id="reactor-grid"></div>
+  <div class="daily-notes-card">
+    <h3>📝 General notes for the day</h3>
+    <textarea class="notes-area" id="daily-notes" placeholder="Any lab-wide observations, maintenance notes, or general info for this day..."></textarea>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+      <button class="save-btn" onclick="saveDailyNotes()">Save notes</button>
+    </div>
+  </div>
+  <div class="monthly-card">
+    <div class="monthly-header">
+      <h3>Monthly log</h3>
+      <div class="month-select">
+        <select id="month-select" onchange="renderMonthly()"></select>
+        <select id="year-select" onchange="renderMonthly()"></select>
+      </div>
+    </div>
+    <div id="monthly-table-wrap" style="overflow-x:auto"></div>
+    <div class="download-row">
+      <button class="btn btn-success" onclick="downloadCSV()">⬇ Download CSV</button>
+      <button class="btn btn-primary" onclick="downloadPDF()">⬇ Download PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     TAB 3: ANALYSIS
+════════════════════════════════════════════════════ -->
+<div id="tab-analysis" class="tab-section">
+  <div class="analysis-top">
+    <div>
+      <h2>Reactor Analysis</h2>
+      <p>Booked time, utilization, efficiency and downtime trends across reactors.</p>
+    </div>
+  </div>
+
+  <div class="analysis-filters">
+    <label>Range:</label>
+    <div class="range-chip-row" id="range-chip-row">
+      <button class="range-chip active" data-range="today" onclick="setAnalysisRange('today',this)">Today</button>
+      <button class="range-chip" data-range="7" onclick="setAnalysisRange('7',this)">Last 7 Days</button>
+      <button class="range-chip" data-range="30" onclick="setAnalysisRange('30',this)">Last 30 Days</button>
+      <button class="range-chip" data-range="month" onclick="setAnalysisRange('month',this)">This Month</button>
+      <button class="range-chip" data-range="custom" onclick="setAnalysisRange('custom',this)">Custom</button>
+    </div>
+    <div class="custom-range-row" id="custom-range-row">
+      <input type="date" id="analysis-from">
+      <span style="color:var(--muted);font-size:0.8rem">to</span>
+      <input type="date" id="analysis-to">
+      <button class="btn btn-sm" onclick="renderAnalysis()">Apply</button>
+    </div>
+  </div>
+
+  <!-- KPI cards -->
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <!-- Row 1: Utilization bar + Efficiency bar -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <h4>⏱ Reactor Utilization</h4>
+      <div class="chart-sub">Booked vs Used vs Downtime hours, per reactor</div>
+      <div class="chart-canvas-wrap" id="wrap-chart-utilization"><canvas id="chart-utilization"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h4>⚡ Efficiency by Reactor</h4>
+      <div class="chart-sub">Used time ÷ Booked time, per reactor</div>
+      <div class="chart-canvas-wrap" id="wrap-chart-efficiency"><canvas id="chart-efficiency"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Row 2: Downtime breakdown + Lab-wide donut -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <h4>🔧 Downtime Breakdown by Reason</h4>
+      <div class="chart-sub">Where each reactor's downtime is coming from</div>
+      <div class="reactor-filter-row" id="downtime-reactor-filter"></div>
+      <div class="chart-canvas-wrap" id="wrap-chart-downtime-reason"><canvas id="chart-downtime-reason"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h4>🥧 Lab-Wide Time Split</h4>
+      <div class="chart-sub">Combined Ran / Downtime / Unbooked share across all reactors</div>
+      <div class="chart-canvas-wrap" id="wrap-chart-labwide"><canvas id="chart-labwide"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Row 3: Trend lines -->
+  <div class="chart-grid">
+    <div class="chart-card full-width">
+      <h4>📈 Efficiency Trend</h4>
+      <div class="chart-sub">Daily efficiency % per reactor over the selected range</div>
+      <div class="chart-canvas-wrap tall" id="wrap-chart-trend-efficiency"><canvas id="chart-trend-efficiency"></canvas></div>
+    </div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card full-width">
+      <h4>📊 Booked vs Used Hours Trend</h4>
+      <div class="chart-sub">Daily booked hours vs actually used hours, per reactor</div>
+      <div class="reactor-filter-row" id="trend-reactor-filter"></div>
+      <div class="chart-canvas-wrap tall" id="wrap-chart-trend-hours"><canvas id="chart-trend-hours"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Summary table -->
+  <div class="summary-table-card">
+    <h4>📋 Reactor Comparison Summary</h4>
+    <div style="overflow-x:auto">
+      <table id="analysis-summary-table">
+        <thead><tr>
+          <th>Reactor</th><th>Total Booked</th><th>Total Used</th><th>Total Downtime</th><th>Efficiency</th><th>Most Common Downtime Reason</th>
+        </tr></thead>
+        <tbody id="analysis-summary-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</main>
+<div id="toast"></div>
+
+
+<script>
+// Tab switching is defined here, OUTSIDE the Firebase module, so the UI
+// always works even if Firebase/CDN scripts fail to load due to network restrictions.
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  btn.classList.add('active');
+  if (window.__onTabSwitch) window.__onTabSwitch(tab);
+}
+</script>
+<script type="module">
+let initializeApp, getDatabase, ref, set, get, onValue;
+let firebaseSDKLoaded = false;
+try {
+  const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+  const dbMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+  initializeApp = appMod.initializeApp;
+  getDatabase = dbMod.getDatabase;
+  ref = dbMod.ref; set = dbMod.set; get = dbMod.get; onValue = dbMod.onValue;
+  firebaseSDKLoaded = true;
+} catch (e) {
+  console.warn('Firebase SDK failed to load (network/CDN blocked). App will run in offline/local mode.', e);
+}
+
+const REACTORS = ['R1','R2','R3','R4'];
+const REACTOR_COLORS = ['r1','r2','r3','r4'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+let db = null;
+let allData = {};
+let allBookings = {};
+let currentDate = '';
+let dayData = {};
+let activeBookingReactor = 'R1';
+let cancelBookingId = null;
+
+// ── HELPERS ───────────────────────────────────────────────────
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+function fmt(mins) {
+  if (mins <= 0) return '0m';
+  const h = Math.floor(mins/60), m = mins%60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function parseTime(t) { if (!t) return null; const [h,m] = t.split(':').map(Number); return h*60+m; }
+// Returns YYYY-MM-DD using LOCAL time (not UTC). toISOString() converts to UTC first,
+// which silently shifts the date backward for users in timezones ahead of UTC (like IST)
+// during early morning hours — that mismatch was causing bookings and analysis to look
+// at different calendar days. This function avoids that entirely.
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function todayStr() { return localDateStr(new Date()); }
+function genId() { return 'BK' + Date.now().toString(36).toUpperCase().slice(-6); }
+function fmtDate(d) { if (!d) return '—'; const [y,m,dd] = d.split('-'); return `${dd} ${MONTHS_SHORT[parseInt(m)-1]} ${y}`; }
+// Convert "HH:MM" (24hr) to "h:MM AM/PM" for clearer display, avoiding 24hr ambiguity.
+function fmt12(t) {
+  if (!t) return '—';
+  const [h, m] = t.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2,'0')} ${period}`;
+}
+function minsToHHMM(m) { return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`; }
+function minsTo12hr(m) { return fmt12(minsToHHMM(m)); }
+
+// ── TAB SWITCHING ─────────────────────────────────────────────
+window.__onTabSwitch = function(tab) {
+  if (tab === 'dashboard') { loadDayData(); }
+  if (tab === 'analysis') { renderAnalysis(); }
+}
+
+// ── FIREBASE ──────────────────────────────────────────────────
+function initFirebase(cfg) {
+  if (!firebaseSDKLoaded) {
+    document.getElementById('conn-dot').className = 'conn-dot error';
+    document.getElementById('conn-label').textContent = 'Offline (network blocked)';
+    toast('⚠️ Could not load Firebase — check your internet/network connection');
+    return false;
+  }
+  try {
+    const app = initializeApp(cfg, 'reactor-app');
+    db = getDatabase(app);
+    document.getElementById('conn-dot').className = 'conn-dot connected';
+    document.getElementById('conn-label').textContent = 'Connected';
+    document.getElementById('firebase-banner').style.display = 'none';
+    onValue(ref(db, 'reactor_data'), snap => { allData = snap.val() || {}; loadDayData(); renderMonthly(); if (document.getElementById('tab-analysis').classList.contains('active')) renderAnalysis(); });
+    onValue(ref(db, 'bookings'), snap => { allBookings = snap.val() || {}; refreshBookingView(); if (currentDate) renderCards(); if (document.getElementById('tab-analysis').classList.contains('active')) renderAnalysis(); });
+    return true;
+  } catch(e) {
+    document.getElementById('conn-dot').className = 'conn-dot error';
+    document.getElementById('conn-label').textContent = 'Not connected';
+    return false;
+  }
+}
+
+window.openConfig = function() { document.getElementById('config-modal').classList.add('open'); }
+window.closeConfig = function() { document.getElementById('config-modal').classList.remove('open'); }
+window.saveConfig = function() {
+  const apiKey = document.getElementById('cfg-apiKey').value.trim();
+  const projectId = document.getElementById('cfg-projectId').value.trim();
+  const databaseURL = document.getElementById('cfg-dbUrl').value.trim();
+  if (!apiKey || !projectId || !databaseURL) { alert('Please fill in all 3 fields.'); return; }
+  const cfg = { apiKey, projectId, databaseURL, authDomain: projectId + '.firebaseapp.com' };
+  localStorage.setItem('reactor_firebase_cfg', JSON.stringify(cfg));
+  closeConfig();
+  const ok = initFirebase(cfg);
+  if (ok) toast('✅ Firebase connected!');
+  else toast('❌ Connection failed — check your details.');
+}
+
+// ── GET BOOKINGS FOR A REACTOR ON A DATE ──────────────────────
+function getBookingsForDay(reactor, date) {
+  return Object.entries(allBookings)
+    .filter(([id, b]) => b.reactor === reactor && b.date === date && b.status !== 'cancelled')
+    .map(([id, b]) => ({ id, ...b }))
+    .sort((a, b) => (a.startMins||0) - (b.startMins||0));
+}
+
+// ── DAILY LOG ─────────────────────────────────────────────────
+window.setToday = function() { document.getElementById('selected-date').value = todayStr(); loadDate(); }
+window.loadDate = function() { currentDate = document.getElementById('selected-date').value; if (!currentDate) return; loadDayData(); }
+
+function loadDayData() {
+  if (!currentDate) return;
+  dayData = JSON.parse(JSON.stringify(allData[currentDate] || {}));
+  renderCards();
+  document.getElementById('daily-notes').value = dayData.notes || '';
+}
+
+async function saveToDB() {
+  if (!db || !currentDate) { toast('⚠️ Not connected or no date selected'); return false; }
+  allData[currentDate] = JSON.parse(JSON.stringify(dayData));
+  await set(ref(db, `reactor_data/${currentDate}`), allData[currentDate]);
+  return true;
+}
+
+window.saveReactor = async function(rId) {
+  if (!validateAllDowntimesForReactor(rId)) {
+    toast('🚫 Fix the downtime errors highlighted in red before saving');
+    return;
+  }
+  collectReactorData(rId);
+  const ok = await saveToDB();
+  if (ok) {
+    const btn = document.getElementById(`save-btn-${rId}`);
+    btn.classList.add('saved'); btn.textContent = '✓ Saved';
+    setTimeout(() => { btn.classList.remove('saved'); btn.textContent = 'Save'; }, 2000);
+    renderMonthly();
+  }
+}
+
+// Checks every downtime row for this reactor card (slot-bound or manual) and
+// returns false if anything is invalid, highlighting the offending rows.
+function validateAllDowntimesForReactor(rId) {
+  let allValid = true;
+  const slots = getBookingsForDay(rId, currentDate);
+  if (slots.length > 0) {
+    slots.forEach(slot => {
+      const container = document.getElementById(`slot-dt-${rId}-${slot.id}`);
+      if (!container) return;
+      container.querySelectorAll('.downtime-item-wrap').forEach(rowWrap => {
+        if (!validateDowntimeRow(rowWrap, slot.start, slot.end)) allValid = false;
+      });
+    });
+  } else {
+    const container = document.getElementById(`${rId}-downtimes`);
+    if (container) {
+      container.querySelectorAll('.downtime-item-wrap').forEach(rowWrap => {
+        if (!validateDowntimeRow(rowWrap, null, null)) allValid = false;
+      });
+    }
+  }
+  return allValid;
+}
+
+window.saveDailyNotes = async function() {
+  dayData.notes = document.getElementById('daily-notes').value;
+  const ok = await saveToDB();
+  if (ok) toast('Notes saved');
+}
+
+function collectReactorData(rId) {
+  // Collect per-slot downtime data
+  const slots = getBookingsForDay(rId, currentDate);
+  const slotDowntimes = {};
+
+  if (slots.length > 0) {
+    slots.forEach(slot => {
+      const dtList = [];
+      const container = document.getElementById(`slot-dt-${rId}-${slot.id}`);
+      if (container) {
+        container.querySelectorAll('.downtime-item').forEach(row => {
+          const ds = row.querySelector('.dt-start').value;
+          const de = row.querySelector('.dt-end').value;
+          const reason = row.querySelector('.dt-reason').value;
+          if (ds || de || reason) dtList.push({ start: ds, end: de, reason });
+        });
+      }
+      slotDowntimes[slot.id] = dtList;
+    });
+  }
+
+  // Overall downtime (manual, shown when no bookings or extra)
+  const overallDowntimes = [];
+  const overallDtContainer = document.getElementById(`${rId}-downtimes`);
+  if (overallDtContainer) {
+    overallDtContainer.querySelectorAll('.downtime-item').forEach(row => {
+      const ds = row.querySelector('.dt-start').value;
+      const de = row.querySelector('.dt-end').value;
+      const reason = row.querySelector('.dt-reason').value;
+      if (ds || de || reason) overallDowntimes.push({ start: ds, end: de, reason });
+    });
+  }
+
+  const notes = document.getElementById(`${rId}-notes`) ? document.getElementById(`${rId}-notes`).value : '';
+  const startEl = document.getElementById(`${rId}-start`);
+  const endEl = document.getElementById(`${rId}-end`);
+  const start = startEl ? startEl.value : '';
+  const end = endEl ? endEl.value : '';
+
+  dayData[rId] = { start, end, notes, downtimes: overallDowntimes, slotDowntimes };
+}
+
+// ── RENDER REACTOR CARDS ──────────────────────────────────────
+function renderCards() {
+  const grid = document.getElementById('reactor-grid');
+  grid.innerHTML = '';
+  REACTORS.forEach((rId, i) => {
+    const slots = getBookingsForDay(rId, currentDate);
+    const saved = dayData[rId] || {};
+    grid.innerHTML += buildCard(rId, REACTOR_COLORS[i], saved, slots);
+  });
+  // Attach listeners
+  REACTORS.forEach(rId => {
+    const slots = getBookingsForDay(rId, currentDate);
+    if (slots.length > 0) {
+      slots.forEach(slot => {
+        const container = document.getElementById(`slot-dt-${rId}-${slot.id}`);
+        if (container) {
+          container.addEventListener('change', () => {
+            container.querySelectorAll('.downtime-item-wrap').forEach(rowWrap => validateDowntimeRow(rowWrap, slot.start, slot.end));
+            updateSlotStats(rId, slot);
+          });
+          // Validate any pre-existing saved rows on load too
+          container.querySelectorAll('.downtime-item-wrap').forEach(rowWrap => validateDowntimeRow(rowWrap, slot.start, slot.end));
+          updateSlotStats(rId, slot);
+        }
+      });
+    } else {
+      const startEl = document.getElementById(`${rId}-start`);
+      const endEl = document.getElementById(`${rId}-end`);
+      if (startEl) startEl.addEventListener('change', () => updateOverallStats(rId));
+      if (endEl) endEl.addEventListener('change', () => updateOverallStats(rId));
+      updateOverallStats(rId);
+    }
+  });
+}
+
+function buildCard(rId, colorClass, saved, slots) {
+  // Determine auto start/end from bookings
+  let autoStart = '', autoEnd = '';
+  if (slots.length > 0) {
+    autoStart = slots[0].start || '';
+    autoEnd = slots[slots.length - 1].end || '';
+  }
+  const displayStart = saved.start || autoStart;
+  const displayEnd = saved.end || autoEnd;
+  const hasBookings = slots.length > 0;
+
+  // Build slot blocks HTML
+  let slotsHTML = '';
+  if (hasBookings) {
+    slotsHTML = `<div class="slots-section-label">📋 Booked Slots & Downtime Entry</div>`;
+    slots.forEach(slot => {
+      const savedSlotDts = (saved.slotDowntimes && saved.slotDowntimes[slot.id]) || [];
+      const dtRows = savedSlotDts.map(dt => dtRowHTML(`${rId}-${slot.id}`, dt, slot.start, slot.end)).join('');
+      const slotMins = (slot.endMins || 0) - (slot.startMins || 0);
+      slotsHTML += `
+      <div class="booking-slot-block">
+        <div class="booking-slot-header">
+          <div>
+            <div class="booking-slot-title">🕐 ${fmt12(slot.start)} – ${fmt12(slot.end)} &nbsp;·&nbsp; ${fmt(slotMins)}</div>
+            <div class="booking-slot-meta">${slot.name} · ${slot.designation} · ${slot.org}</div>
+          </div>
+          <span class="bid">${slot.id}</span>
+        </div>
+        <div class="booking-slot-body">
+          <div class="slot-stats-bar" id="slot-stats-${rId}-${slot.id}">
+            <div class="slot-stat"><div class="slot-stat-label">Ran</div><div class="slot-stat-val green" id="ss-ran-${rId}-${slot.id}">—</div></div>
+            <div class="slot-stat"><div class="slot-stat-label">Down</div><div class="slot-stat-val red" id="ss-down-${rId}-${slot.id}">—</div></div>
+            <div class="slot-stat"><div class="slot-stat-label">Uptime</div><div class="slot-stat-val amber" id="ss-pct-${rId}-${slot.id}">—</div></div>
+          </div>
+          <div class="section-label">Downtime periods within this slot</div>
+          <div class="slot-range-hint">⏱ Must fall within ${fmt12(slot.start)} – ${fmt12(slot.end)} (this slot's booked window)</div>
+          <div class="downtime-list" id="slot-dt-${rId}-${slot.id}">${dtRows}</div>
+          <button class="add-row-btn" onclick="addSlotDowntime('${rId}','${slot.id}','${slot.start}','${slot.end}')">+ Add downtime period</button>
+        </div>
+      </div>`;
+    });
+  } else {
+    slotsHTML = `
+    <div class="no-booking-banner">✅ No bookings for today — manual entry mode</div>
+    <div class="time-row">
+      <div class="time-field"><label>Start time</label><input type="time" id="${rId}-start" value="${displayStart}"></div>
+      <div class="time-field"><label>Stop time</label><input type="time" id="${rId}-end" value="${displayEnd}"></div>
+    </div>
+    <div class="section-label">Downtime periods</div>
+    <div class="downtime-list" id="${rId}-downtimes">${(saved.downtimes||[]).map(dt => dtRowHTML(rId, dt)).join('')}</div>
+    <button class="add-row-btn" onclick="addDowntime('${rId}')">+ Add downtime period</button>`;
+  }
+
+  // Overall day stats (only shown when there are bookings)
+  const overallStatsHTML = hasBookings ? `
+  <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+    <div class="section-label" style="margin-bottom:8px">📊 Overall Day Summary</div>
+    <div style="display:flex;gap:10px;margin-bottom:8px;align-items:flex-end">
+      <div class="time-field" style="flex:1"><label>Day Start (auto)</label><input type="time" id="${rId}-start" value="${displayStart}" readonly title="Auto-filled from first booking"></div>
+      <div class="time-field" style="flex:1"><label>Day End (auto)</label><input type="time" id="${rId}-end" value="${displayEnd}" readonly title="Auto-filled from last booking"></div>
+    </div>
+    <div class="stats-bar">
+      <div class="stat-box"><div class="stat-label">Total Ran</div><div class="stat-val green" id="${rId}-ran">—</div></div>
+      <div class="stat-box"><div class="stat-label">Total Down</div><div class="stat-val red" id="${rId}-down">—</div></div>
+      <div class="stat-box"><div class="stat-label">Uptime</div><div class="stat-val amber" id="${rId}-pct">—</div></div>
+    </div>
+    <div class="prog-wrap">
+      <div class="prog-label"><span>Overall Uptime</span><span id="${rId}-prog-label">0%</span></div>
+      <div class="prog-track"><div class="prog-fill" id="${rId}-prog" style="width:0%"></div></div>
+    </div>
+  </div>` : `
+  <div class="stats-bar" style="margin-top:12px">
+    <div class="stat-box"><div class="stat-label">Ran</div><div class="stat-val green" id="${rId}-ran">—</div></div>
+    <div class="stat-box"><div class="stat-label">Down</div><div class="stat-val red" id="${rId}-down">—</div></div>
+    <div class="stat-box"><div class="stat-label">Uptime</div><div class="stat-val amber" id="${rId}-pct">—</div></div>
+  </div>
+  <div class="prog-wrap" style="margin-top:10px">
+    <div class="prog-label"><span>Uptime</span><span id="${rId}-prog-label">0%</span></div>
+    <div class="prog-track"><div class="prog-fill" id="${rId}-prog" style="width:0%"></div></div>
+  </div>`;
+
+  return `<div class="reactor-card ${colorClass}">
+    <div class="reactor-header">
+      <div class="reactor-name"><div class="reactor-dot"></div><strong>Reactor ${rId.replace('R','')}</strong></div>
+      <span class="status-badge ${hasBookings ? 'status-running' : 'status-idle'}" id="${rId}-badge">${hasBookings ? `${slots.length} Booking${slots.length>1?'s':''}` : 'No Bookings'}</span>
+    </div>
+    <div class="reactor-body">
+      ${slotsHTML}
+      ${overallStatsHTML}
+      <div style="margin-top:14px">
+        <div class="section-label" style="margin-bottom:5px">Notes / observations</div>
+        <textarea class="notes-area" id="${rId}-notes" placeholder="Any notes for this reactor today...">${saved.notes||''}</textarea>
+      </div>
+      <div class="save-row"><button class="save-btn" id="save-btn-${rId}" onclick="saveReactor('${rId}')">Save</button></div>
+    </div>
+  </div>`;
+}
+
+function dtRowHTML(prefix, dt, minTime, maxTime) {
+  const minAttr = minTime ? ` min="${minTime}"` : '';
+  const maxAttr = maxTime ? ` max="${maxTime}"` : '';
+  return `<div class="downtime-item-wrap">
+    <div class="downtime-item">
+      <input type="time" class="dt-start"${minAttr}${maxAttr} value="${dt.start||''}">
+      <input type="time" class="dt-end"${minAttr}${maxAttr} value="${dt.end||''}">
+      <input type="text" class="dt-reason" value="${dt.reason||''}" placeholder="Reason (e.g. power cut, maintenance)">
+      <button class="remove-btn" onclick="this.closest('.downtime-item-wrap').remove();updateAllStats()">×</button>
+    </div>
+    <div class="dt-error-msg" style="display:none"></div>
+  </div>`;
+}
+
+// Validates a single downtime row against its slot's booked window.
+// Returns true if valid, false if it shows an error and disables saving.
+function validateDowntimeRow(rowWrap, minTime, maxTime) {
+  const startInput = rowWrap.querySelector('.dt-start');
+  const endInput = rowWrap.querySelector('.dt-end');
+  const errMsg = rowWrap.querySelector('.dt-error-msg');
+  startInput.classList.remove('invalid'); endInput.classList.remove('invalid');
+  errMsg.style.display = 'none'; errMsg.textContent = '';
+
+  const ds = parseTime(startInput.value), de = parseTime(endInput.value);
+  if (ds === null && de === null) return true; // empty row, nothing to validate yet
+  if (ds === null || de === null) return true; // still being filled in
+
+  if (de <= ds) {
+    startInput.classList.add('invalid'); endInput.classList.add('invalid');
+    errMsg.textContent = '⚠️ End time must be after start time.';
+    errMsg.style.display = 'flex';
+    return false;
+  }
+
+  if (minTime != null && maxTime != null) {
+    const minM = parseTime(minTime), maxM = parseTime(maxTime);
+    if (ds < minM || de > maxM) {
+      startInput.classList.add('invalid'); endInput.classList.add('invalid');
+      errMsg.textContent = `🚫 Downtime must fall within the booked slot (${fmt12(minTime)} – ${fmt12(maxTime)}). This entry is outside that range.`;
+      errMsg.style.display = 'flex';
+      return false;
+    }
+  }
+  return true;
+}
+
+window.addDowntime = function(rId) {
+  const list = document.getElementById(`${rId}-downtimes`);
+  const div = document.createElement('div');
+  div.innerHTML = dtRowHTML(rId, {});
+  const rowWrap = div.firstElementChild;
+  list.appendChild(rowWrap);
+  rowWrap.addEventListener('change', () => { validateDowntimeRow(rowWrap, null, null); updateOverallStats(rId); });
+}
+
+window.addSlotDowntime = function(rId, slotId, slotStart, slotEnd) {
+  const list = document.getElementById(`slot-dt-${rId}-${slotId}`);
+  const div = document.createElement('div');
+  div.innerHTML = dtRowHTML(`${rId}-${slotId}`, {}, slotStart, slotEnd);
+  const rowWrap = div.firstElementChild;
+  list.appendChild(rowWrap);
+  const slot = getBookingsForDay(rId, currentDate).find(s => s.id === slotId);
+  rowWrap.addEventListener('change', () => {
+    validateDowntimeRow(rowWrap, slotStart, slotEnd);
+    if (slot) { updateSlotStats(rId, slot); updateDayTotals(rId); }
+  });
+}
+
+window.updateAllStats = function() {
+  REACTORS.forEach(rId => {
+    const slots = getBookingsForDay(rId, currentDate);
+    if (slots.length > 0) slots.forEach(slot => updateSlotStats(rId, slot));
+    else updateOverallStats(rId);
+  });
+}
+
+// Update per-slot stats
+function updateSlotStats(rId, slot) {
+  const sm = slot.startMins || 0;
+  const em = slot.endMins || 0;
+  const total = em - sm;
+  if (total <= 0) return;
+
+  let downMins = 0;
+  const container = document.getElementById(`slot-dt-${rId}-${slot.id}`);
+  if (container) {
+    container.querySelectorAll('.downtime-item').forEach(row => {
+      const ds = parseTime(row.querySelector('.dt-start').value);
+      const de = parseTime(row.querySelector('.dt-end').value);
+      if (ds !== null && de !== null && de > ds) downMins += Math.min(de, em) - Math.max(ds, sm);
+    });
+  }
+  downMins = Math.max(0, downMins);
+  const ran = Math.max(0, total - downMins);
+  const pct = Math.round((ran / total) * 100);
+
+  const ranEl = document.getElementById(`ss-ran-${rId}-${slot.id}`);
+  const downEl = document.getElementById(`ss-down-${rId}-${slot.id}`);
+  const pctEl = document.getElementById(`ss-pct-${rId}-${slot.id}`);
+  if (ranEl) ranEl.textContent = fmt(ran);
+  if (downEl) downEl.textContent = downMins > 0 ? fmt(downMins) : '0m';
+  if (pctEl) pctEl.textContent = pct + '%';
+
+  updateDayTotals(rId);
+}
+
+// Update overall day totals from all slots
+function updateDayTotals(rId) {
+  const slots = getBookingsForDay(rId, currentDate);
+  if (slots.length === 0) return;
+
+  let totalRan = 0, totalDown = 0, totalMins = 0;
+  slots.forEach(slot => {
+    const sm = slot.startMins || 0;
+    const em = slot.endMins || 0;
+    const slotTotal = em - sm;
+    totalMins += slotTotal;
+    let slotDown = 0;
+    const container = document.getElementById(`slot-dt-${rId}-${slot.id}`);
+    if (container) {
+      container.querySelectorAll('.downtime-item').forEach(row => {
+        const ds = parseTime(row.querySelector('.dt-start').value);
+        const de = parseTime(row.querySelector('.dt-end').value);
+        if (ds !== null && de !== null && de > ds) slotDown += Math.min(de, em) - Math.max(ds, sm);
+      });
+    }
+    slotDown = Math.max(0, slotDown);
+    totalDown += slotDown;
+    totalRan += Math.max(0, slotTotal - slotDown);
+  });
+
+  const pct = totalMins > 0 ? Math.round((totalRan / totalMins) * 100) : 0;
+  const ranEl = document.getElementById(`${rId}-ran`);
+  const downEl = document.getElementById(`${rId}-down`);
+  const pctEl = document.getElementById(`${rId}-pct`);
+  const progEl = document.getElementById(`${rId}-prog`);
+  const progLabelEl = document.getElementById(`${rId}-prog-label`);
+  if (ranEl) ranEl.textContent = fmt(totalRan);
+  if (downEl) downEl.textContent = totalDown > 0 ? fmt(totalDown) : '0m';
+  if (pctEl) pctEl.textContent = pct + '%';
+  if (progEl) progEl.style.width = pct + '%';
+  if (progLabelEl) progLabelEl.textContent = pct + '%';
+}
+
+// Update stats for no-booking manual mode
+function updateOverallStats(rId) {
+  const s = parseTime(document.getElementById(`${rId}-start`) ? document.getElementById(`${rId}-start`).value : null);
+  const e = parseTime(document.getElementById(`${rId}-end`) ? document.getElementById(`${rId}-end`).value : null);
+  const badge = document.getElementById(`${rId}-badge`);
+  const ranEl = document.getElementById(`${rId}-ran`);
+  const downEl = document.getElementById(`${rId}-down`);
+  const pctEl = document.getElementById(`${rId}-pct`);
+  const progEl = document.getElementById(`${rId}-prog`);
+  const progLbl = document.getElementById(`${rId}-prog-label`);
+
+  if (s === null || e === null || e <= s) {
+    if (ranEl) ranEl.textContent = '—';
+    if (downEl) downEl.textContent = '—';
+    if (pctEl) pctEl.textContent = '—';
+    if (progEl) progEl.style.width = '0%';
+    if (progLbl) progLbl.textContent = '0%';
+    return;
+  }
+  const total = e - s; let downMins = 0;
+  const dtContainer = document.getElementById(`${rId}-downtimes`);
+  if (dtContainer) {
+    dtContainer.querySelectorAll('.downtime-item').forEach(row => {
+      const ds = parseTime(row.querySelector('.dt-start').value);
+      const de = parseTime(row.querySelector('.dt-end').value);
+      if (ds !== null && de !== null && de > ds) downMins += de - ds;
+    });
+  }
+  const ran = Math.max(0, total - downMins);
+  const pct = total > 0 ? Math.round((ran/total)*100) : 0;
+  if (ranEl) ranEl.textContent = fmt(ran);
+  if (downEl) downEl.textContent = downMins > 0 ? fmt(downMins) : '0m';
+  if (pctEl) pctEl.textContent = pct + '%';
+  if (progEl) progEl.style.width = pct + '%';
+  if (progLbl) progLbl.textContent = pct + '%';
+  if (badge) { badge.className = 'status-badge ' + (s !== null && e !== null && e > s ? 'status-running' : 'status-idle'); badge.textContent = s !== null && e !== null && e > s ? 'Active' : 'No data'; }
+}
+
+// ── MONTHLY TABLE ─────────────────────────────────────────────
+function populateMonthSelects() {
+  [document.getElementById('month-select'), document.getElementById('bdl-month')].forEach(ms => {
+    if (!ms) return; ms.innerHTML = '';
+    MONTHS.forEach((m,i) => { const o = document.createElement('option'); o.value = i+1; o.textContent = m; ms.appendChild(o); });
+    ms.value = new Date().getMonth()+1;
+  });
+  [document.getElementById('year-select'), document.getElementById('bdl-year')].forEach(ys => {
+    if (!ys) return; ys.innerHTML = '';
+    const yr = new Date().getFullYear();
+    for (let y = yr-1; y <= yr+1; y++) { const o = document.createElement('option'); o.value = y; o.textContent = y; ys.appendChild(o); }
+    ys.value = yr;
+  });
+}
+
+window.renderMonthly = function() {
+  const month = parseInt(document.getElementById('month-select').value);
+  const year = parseInt(document.getElementById('year-select').value);
+  const days = new Date(year, month, 0).getDate();
+  let html = `<table><thead><tr><th>Date</th>${REACTORS.map(r=>`<th>${r} Ran</th><th>${r} Down</th><th>${r} %</th>`).join('')}<th>Notes</th></tr></thead><tbody>`;
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayRec = allData[dateStr] || {};
+    html += `<tr><td style="font-weight:500;white-space:nowrap">${String(d).padStart(2,'0')} ${MONTHS_SHORT[month-1]}</td>`;
+    REACTORS.forEach(rId => {
+      const rd = dayRec[rId] || {};
+      // Try to compute from bookings + slot downtimes
+      const slots = Object.entries(allBookings)
+        .filter(([id, b]) => b.reactor === rId && b.date === dateStr && b.status !== 'cancelled')
+        .map(([id, b]) => ({ id, ...b }));
+      if (slots.length > 0) {
+        let totalMins = 0, totalDown = 0;
+        slots.forEach(slot => {
+          const sm = slot.startMins || 0; const em = slot.endMins || 0;
+          totalMins += em - sm;
+          const slotDts = (rd.slotDowntimes && rd.slotDowntimes[slot.id]) || [];
+          slotDts.forEach(dt => {
+            const ds = parseTime(dt.start); const de = parseTime(dt.end);
+            if (ds !== null && de !== null && de > ds) totalDown += Math.min(de, em) - Math.max(ds, sm);
+          });
+        });
+        totalDown = Math.max(0, totalDown);
+        const ran = Math.max(0, totalMins - totalDown);
+        const pct = totalMins > 0 ? Math.round((ran/totalMins)*100) : 0;
+        html += `<td><span class="tag-run">${fmt(ran)}</span></td><td>${totalDown>0?fmt(totalDown):'—'}</td><td>${pct}%</td>`;
+      } else {
+        const s = parseTime(rd.start); const e = parseTime(rd.end);
+        if (s !== null && e !== null && e > s) {
+          const total=e-s; let down=0;
+          (rd.downtimes||[]).forEach(dt=>{const ds=parseTime(dt.start),de=parseTime(dt.end);if(ds!==null&&de!==null&&de>ds)down+=de-ds;});
+          const ran=Math.max(0,total-down); const pct=Math.round((ran/total)*100);
+          html += `<td><span class="tag-run">${fmt(ran)}</span></td><td>${down>0?fmt(down):'—'}</td><td>${pct}%</td>`;
+        } else html += `<td><span class="tag-idle">—</span></td><td>—</td><td>—</td>`;
+      }
+    });
+    html += `<td style="max-width:180px;color:var(--muted);font-size:0.75rem">${(dayRec.notes||'—').replace(/</g,'&lt;')}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('monthly-table-wrap').innerHTML = html;
+}
+
+// ── BOOKING SYSTEM ────────────────────────────────────────────
+function computeFreeSlots(bookedIntervals) {
+  const sorted = [...bookedIntervals].sort((a,b) => a[0]-b[0]);
+  const merged = [];
+  for (const [s,e] of sorted) {
+    if (merged.length && s <= merged[merged.length-1][1]) merged[merged.length-1][1] = Math.max(merged[merged.length-1][1], e);
+    else merged.push([s,e]);
+  }
+  const free = []; let cur = 0;
+  for (const [s,e] of merged) { if (s > cur) free.push([cur, s]); cur = e; }
+  if (cur < 1440) free.push([cur, 1440]);
+  return free;
+}
+
+window.selectBookingReactor = function(rId, btn) {
+  activeBookingReactor = rId;
+  document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  refreshBookingView();
+}
+
+window.setBookingToday = function() {
+  document.getElementById('booking-view-date').value = todayStr();
+  refreshBookingView();
+}
+
+window.refreshBookingView = function() {
+  const date = document.getElementById('booking-view-date').value;
+  if (!date) return;
+  const reactors = activeBookingReactor === 'ALL' ? REACTORS : [activeBookingReactor];
+  const rLabel = activeBookingReactor === 'ALL' ? 'All Reactors' : `Reactor ${activeBookingReactor.replace('R','')}`;
+  document.getElementById('slots-reactor-label').textContent = rLabel;
+  document.getElementById('slots-date-label').textContent = fmtDate(date);
+  document.getElementById('bookings-day-label').textContent = `${rLabel} — ${fmtDate(date)}`;
+
+  const slotsGrid = document.getElementById('slots-grid');
+  if (activeBookingReactor === 'ALL') {
+    let html = '';
+    REACTORS.forEach(r => {
+      const bookings = getBookingsForDay(r, date);
+      const booked = bookings.map(b => [b.startMins, b.endMins]);
+      const free = computeFreeSlots(booked);
+      html += `<div style="width:100%;margin-bottom:10px"><div style="font-size:0.78rem;font-weight:600;color:var(--muted);margin-bottom:6px">Reactor ${r.replace('R','')}</div><div style="display:flex;flex-wrap:wrap;gap:6px">`;
+      if (free.length === 0) html += `<span class="slot-chip slot-booked">Fully booked</span>`;
+      else free.forEach(([s,e]) => { html += `<span class="slot-chip slot-free">${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+      booked.forEach(([s,e]) => { html += `<span class="slot-chip slot-booked">🔒 ${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+      html += '</div></div>';
+    });
+    slotsGrid.innerHTML = html || '<span class="slot-empty">No data</span>';
+  } else {
+    const bookings = getBookingsForDay(activeBookingReactor, date);
+    const booked = bookings.map(b => [b.startMins, b.endMins]);
+    const free = computeFreeSlots(booked);
+    let html = '';
+    if (free.length === 0) html += `<span class="slot-chip slot-booked">Fully booked for the day</span>`;
+    else free.forEach(([s,e]) => { html += `<span class="slot-chip slot-free">${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+    booked.forEach(([s,e]) => { html += `<span class="slot-chip slot-booked">🔒 ${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+    slotsGrid.innerHTML = html || '<span class="slot-empty">Fully free — no bookings yet</span>';
+  }
+
+  // Render bookings table
+  const allForDay = [];
+  reactors.forEach(r => { getBookingsForDay(r, date).forEach(b => allForDay.push(b)); });
+  Object.entries(allBookings)
+    .filter(([id,b]) => reactors.includes(b.reactor) && b.date === date && b.status === 'cancelled')
+    .forEach(([id,b]) => allForDay.push({id,...b}));
+  allForDay.sort((a,b) => (a.startMins||0) - (b.startMins||0));
+
+  const tbody = document.getElementById('bookings-tbody');
+  if (allForDay.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:20px">No bookings for this day</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = allForDay.map(b => `<tr>
+    <td><span class="bid">${b.id}</span></td>
+    <td>R${(b.reactor||'').replace('R','')}</td>
+    <td style="white-space:nowrap">${fmtDate(b.date)}</td>
+    <td>${b.start?fmt12(b.start):'—'}</td><td>${b.end?fmt12(b.end):'—'}</td>
+    <td>${b.startMins!=null&&b.endMins!=null?fmt(b.endMins-b.startMins):'—'}</td>
+    <td>${b.name||'—'}</td><td>${b.designation||'—'}</td><td>${b.org||'—'}</td>
+    <td style="max-width:140px;font-size:0.78rem">${(b.purpose||'—').slice(0,60)}</td>
+    <td>${b.status==='cancelled'?'<span style="color:var(--red);font-size:0.75rem;font-weight:600">Cancelled</span>':'<span class="confirmed-badge">Confirmed</span>'}</td>
+    <td>${b.status!=='cancelled'?`<button class="cancel-badge" onclick="openCancelModal('${b.id}')">Cancel</button>`:'—'}</td>
+  </tr>`).join('');
+}
+
+// ── BOOKING FORM ──────────────────────────────────────────────
+window.openBookingForm = function() {
+  document.getElementById('booking-form-card').style.display = 'block';
+  // Set min date to today to prevent past booking
+  const bookDateInput = document.getElementById('book-date');
+  bookDateInput.min = todayStr();
+  const viewDate = document.getElementById('booking-view-date').value;
+  // Only prefill if view date is today or future
+  bookDateInput.value = (viewDate && viewDate >= todayStr()) ? viewDate : todayStr();
+  document.getElementById('book-reactor').value = activeBookingReactor === 'ALL' ? 'R1' : activeBookingReactor;
+  document.getElementById('conflict-alert').classList.remove('show');
+  document.getElementById('success-alert').classList.remove('show');
+  document.getElementById('booking-form-card').scrollIntoView({behavior:'smooth'});
+}
+
+window.closeBookingForm = function() {
+  document.getElementById('booking-form-card').style.display = 'none';
+  ['book-name','book-designation','book-org','book-purpose','book-contact'].forEach(id => document.getElementById(id).value = '');
+}
+
+window.checkAndBook = async function() {
+  const reactor = document.getElementById('book-reactor').value;
+  const date = document.getElementById('book-date').value;
+  const start = document.getElementById('book-start').value;
+  const end = document.getElementById('book-end').value;
+  const name = document.getElementById('book-name').value.trim();
+  const designation = document.getElementById('book-designation').value.trim();
+  const org = document.getElementById('book-org').value.trim();
+  const purpose = document.getElementById('book-purpose').value.trim();
+  const contact = document.getElementById('book-contact').value.trim();
+
+  const conflictEl = document.getElementById('conflict-alert');
+  const successEl = document.getElementById('success-alert');
+  conflictEl.classList.remove('show'); successEl.classList.remove('show');
+
+  // ── PAST DATE BLOCK ──────────────────────────────────────────
+  if (!date || date < todayStr()) {
+    conflictEl.textContent = '🚫 Bookings can only be made for today or future dates. Past dates are not allowed.';
+    conflictEl.classList.add('show'); return;
+  }
+
+  if (!start || !end || !name || !designation || !org || !purpose) {
+    conflictEl.textContent = '⚠️ Please fill in all required fields.';
+    conflictEl.classList.add('show'); return;
+  }
+  const sm = parseTime(start), em = parseTime(end);
+  if (em <= sm) {
+    conflictEl.textContent = '⚠️ End time must be after start time.';
+    conflictEl.classList.add('show'); return;
+  }
+  if (!db) { toast('⚠️ Not connected to Firebase'); return; }
+
+  // Conflict check
+  const existing = getBookingsForDay(reactor, date);
+  const conflict = existing.find(b => !(em <= b.startMins || sm >= b.endMins));
+  if (conflict) {
+    conflictEl.innerHTML = `🚫 <strong>Time conflict!</strong> Reactor ${reactor.replace('R','')} is already booked from <strong>${fmt12(conflict.start)}</strong> to <strong>${fmt12(conflict.end)}</strong> by <strong>${conflict.name}</strong> (${conflict.org}).<br><br>Please choose a different time slot.`;
+    conflictEl.classList.add('show'); return;
+  }
+
+  const id = genId();
+  const booking = { id, reactor, date, start, end, startMins: sm, endMins: em, name, designation, org, purpose, contact, status: 'confirmed', bookedAt: new Date().toISOString() };
+  await set(ref(db, `bookings/${id}`), booking);
+
+  successEl.textContent = `✅ Booking confirmed! ID: ${id}. Reactor ${reactor.replace('R','')} reserved on ${fmtDate(date)} from ${fmt12(start)} to ${fmt12(end)}.`;
+  successEl.classList.add('show');
+  document.getElementById('booking-view-date').value = date;
+  toast(`✅ Booking ${id} confirmed!`);
+  setTimeout(() => closeBookingForm(), 3500);
+}
+
+// ── CANCEL BOOKING ────────────────────────────────────────────
+window.openCancelModal = function(id) {
+  cancelBookingId = id;
+  const b = allBookings[id]; if (!b) return;
+  document.getElementById('cancel-booking-info').innerHTML = `<strong>${b.name}</strong> · ${b.org}<br>Reactor ${b.reactor.replace('R','')} · ${fmtDate(b.date)} · ${fmt12(b.start)} – ${fmt12(b.end)}<br><span class="bid">${id}</span>`;
+  document.getElementById('cancel-modal').classList.add('open');
+}
+window.closeCancelModal = function() { document.getElementById('cancel-modal').classList.remove('open'); cancelBookingId = null; }
+window.confirmCancel = async function() {
+  if (!cancelBookingId || !db) return;
+  await set(ref(db, `bookings/${cancelBookingId}/status`), 'cancelled');
+  closeCancelModal();
+  toast(`Booking ${cancelBookingId} cancelled`);
+}
+
+// ── DOWNLOAD BOOKINGS CSV ─────────────────────────────────────
+window.downloadBookingsCSV = function() {
+  const month = parseInt(document.getElementById('bdl-month').value);
+  const year = parseInt(document.getElementById('bdl-year').value);
+  const filterReactor = document.getElementById('bdl-reactor').value;
+  let csv = 'Booking ID,Reactor,Date,Start,End,Duration (hrs),Name,Designation,Organization,Purpose,Contact,Status,Booked At\n';
+  Object.entries(allBookings).forEach(([id,b]) => {
+    if (filterReactor !== 'ALL' && b.reactor !== filterReactor) return;
+    if (!b.date) return;
+    const [y,m] = b.date.split('-');
+    if (parseInt(m) !== month || parseInt(y) !== year) return;
+    const dur = (b.startMins!=null&&b.endMins!=null) ? ((b.endMins-b.startMins)/60).toFixed(2) : '';
+    csv += `"${id}","${b.reactor}","${b.date}","${b.start}","${b.end}","${dur}","${b.name}","${b.designation}","${b.org}","${(b.purpose||'').replace(/"/g,'""')}","${b.contact||''}","${b.status}","${b.bookedAt||''}"\n`;
+  });
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `Reactor_Bookings_${MONTHS[month-1]}_${year}.csv`; a.click();
+}
+
+// ── DOWNLOAD BOOKINGS PDF ─────────────────────────────────────
+window.downloadBookingsPDF = function() {
+  const { jsPDF } = window.jspdf;
+  const month = parseInt(document.getElementById('bdl-month').value);
+  const year = parseInt(document.getElementById('bdl-year').value);
+  const filterReactor = document.getElementById('bdl-reactor').value;
+  const mName = MONTHS[month-1];
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+  doc.setFontSize(16); doc.setFont(undefined,'bold');
+  doc.text(`Lab Reactor Booking Report — ${mName} ${year}`, 14, 18);
+  doc.setFontSize(9); doc.setFont(undefined,'normal');
+  doc.text(`Generated: ${new Date().toLocaleString()} | Filter: ${filterReactor==='ALL'?'All Reactors':'Reactor '+filterReactor.replace('R','')}`, 14, 25);
+  const rows = [];
+  Object.entries(allBookings).forEach(([id,b]) => {
+    if (filterReactor !== 'ALL' && b.reactor !== filterReactor) return;
+    if (!b.date) return;
+    const [y,m] = b.date.split('-');
+    if (parseInt(m) !== month || parseInt(y) !== year) return;
+    const dur = (b.startMins!=null&&b.endMins!=null) ? fmt(b.endMins-b.startMins) : '—';
+    rows.push([id, `R${b.reactor.replace('R','')}`, fmtDate(b.date), b.start, b.end, dur, b.name, b.designation, (b.org||'').slice(0,25), (b.purpose||'').slice(0,30), b.status]);
+  });
+  rows.sort((a,b) => a[2].localeCompare(b[2]));
+  doc.autoTable({ head:[['ID','Reactor','Date','From','To','Duration','Name','Designation','Organization','Purpose','Status']], body:rows, startY:30, styles:{fontSize:7,cellPadding:2}, headStyles:{fillColor:[37,99,235],textColor:255,fontStyle:'bold'}, alternateRowStyles:{fillColor:[245,246,250]}, didParseCell:(data)=>{ if(data.section==='body'&&data.column.index===10&&data.cell.raw==='cancelled')data.cell.styles.textColor=[220,38,38]; } });
+  doc.addPage();
+  doc.setFontSize(13); doc.setFont(undefined,'bold');
+  doc.text(`Booking Summary — ${mName} ${year}`, 14, 18);
+  const sumRows = [];
+  REACTORS.forEach(r => {
+    const bks = Object.values(allBookings).filter(b => b.reactor===r && b.date && parseInt(b.date.split('-')[1])===month && parseInt(b.date.split('-')[0])===year);
+    const confirmed = bks.filter(b=>b.status!=='cancelled');
+    const totalHrs = confirmed.reduce((acc,b)=>acc+((b.endMins||0)-(b.startMins||0)),0)/60;
+    sumRows.push([`Reactor ${r.replace('R','')}`, bks.length, confirmed.length, bks.length-confirmed.length, totalHrs.toFixed(1)+' hrs']);
+  });
+  doc.autoTable({ head:[['Reactor','Total Bookings','Confirmed','Cancelled','Total Booked Hours']], body:sumRows, startY:24, styles:{fontSize:9,cellPadding:3}, headStyles:{fillColor:[37,99,235],textColor:255,fontStyle:'bold'} });
+  doc.save(`Reactor_Bookings_${mName}_${year}.pdf`);
+}
+
+// ── DAILY LOG DOWNLOADS ───────────────────────────────────────
+window.downloadCSV = function() {
+  const month = parseInt(document.getElementById('month-select').value);
+  const year = parseInt(document.getElementById('year-select').value);
+  const days = new Date(year, month, 0).getDate();
+  let csv = 'Date,Reactor,Start,Stop,Total Booked Hours,Ran (hrs),Downtime (hrs),Uptime %,Notes\n';
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayRec = allData[dateStr] || {};
+    REACTORS.forEach(rId => {
+      const slots = Object.entries(allBookings).filter(([id,b])=>b.reactor===rId&&b.date===dateStr&&b.status!=='cancelled').map(([id,b])=>({id,...b}));
+      const rd = dayRec[rId] || {};
+      if (slots.length > 0) {
+        let totalMins=0,totalDown=0;
+        slots.forEach(slot=>{const sm=slot.startMins||0,em=slot.endMins||0;totalMins+=em-sm;const sdts=(rd.slotDowntimes&&rd.slotDowntimes[slot.id])||[];sdts.forEach(dt=>{const ds=parseTime(dt.start),de=parseTime(dt.end);if(ds!==null&&de!==null&&de>ds)totalDown+=Math.min(de,em)-Math.max(ds,sm);});});
+        const ran=Math.max(0,totalMins-totalDown);const pct=totalMins>0?Math.round((ran/totalMins)*100):0;
+        csv+=`"${dateStr}","${rId}","${slots[0].start}","${slots[slots.length-1].end}","${(totalMins/60).toFixed(2)}","${(ran/60).toFixed(2)}","${(totalDown/60).toFixed(2)}","${pct}%","${(rd.notes||'').replace(/"/g,'""')}"\n`;
+      } else {
+        const s=parseTime(rd.start),e=parseTime(rd.end);
+        if(s!==null&&e!==null&&e>s){let down=0;(rd.downtimes||[]).forEach(dt=>{const ds=parseTime(dt.start),de=parseTime(dt.end);if(ds!==null&&de!==null&&de>ds)down+=de-ds;});const ran=Math.max(0,(e-s)-down);const pct=Math.round((ran/(e-s))*100);csv+=`"${dateStr}","${rId}","${rd.start}","${rd.end}","${((e-s)/60).toFixed(2)}","${(ran/60).toFixed(2)}","${(down/60).toFixed(2)}","${pct}%","${(rd.notes||'').replace(/"/g,'""')}"\n`;}
+        else csv+=`"${dateStr}","${rId}","","","","","","",""\n`;
+      }
+    });
+  }
+  const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Reactor_Data_${MONTHS[month-1]}_${year}.csv`;a.click();
+}
+
+window.downloadPDF = function() {
+  const { jsPDF } = window.jspdf;
+  const month = parseInt(document.getElementById('month-select').value);
+  const year = parseInt(document.getElementById('year-select').value);
+  const days = new Date(year, month, 0).getDate();
+  const mName = MONTHS[month-1];
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+  doc.setFontSize(16); doc.setFont(undefined,'bold');
+  doc.text(`Lab Reactor Monthly Report — ${mName} ${year}`, 14, 18);
+  doc.setFontSize(9); doc.setFont(undefined,'normal');
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 25);
+  const head = [['Date', ...REACTORS.flatMap(r=>[`${r} Ran`,`${r} Down`,`${r} %`]), 'Notes']];
+  const body = [];
+  for (let d = 1; d <= days; d++) {
+    const dateStr=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayRec=allData[dateStr]||{};
+    const row=[`${String(d).padStart(2,'0')} ${MONTHS_SHORT[month-1]}`];
+    REACTORS.forEach(rId=>{
+      const slots=Object.entries(allBookings).filter(([id,b])=>b.reactor===rId&&b.date===dateStr&&b.status!=='cancelled').map(([id,b])=>({id,...b}));
+      const rd=dayRec[rId]||{};
+      if(slots.length>0){let tm=0,td=0;slots.forEach(slot=>{const sm=slot.startMins||0,em=slot.endMins||0;tm+=em-sm;const sdts=(rd.slotDowntimes&&rd.slotDowntimes[slot.id])||[];sdts.forEach(dt=>{const ds=parseTime(dt.start),de=parseTime(dt.end);if(ds!==null&&de!==null&&de>ds)td+=Math.min(de,em)-Math.max(ds,sm);});});const ran=Math.max(0,tm-td);const pct=tm>0?Math.round((ran/tm)*100):0;row.push(fmt(ran),td>0?fmt(td):'—',pct+'%');}
+      else{const s=parseTime(rd.start),e=parseTime(rd.end);if(s!==null&&e!==null&&e>s){let down=0;(rd.downtimes||[]).forEach(dt=>{const ds=parseTime(dt.start),de=parseTime(dt.end);if(ds!==null&&de!==null&&de>ds)down+=de-ds;});const ran=Math.max(0,(e-s)-down);row.push(fmt(ran),down>0?fmt(down):'—',Math.round((ran/(e-s))*100)+'%');}else row.push('—','—','—');}
+    });
+    row.push((dayRec.notes||'').slice(0,60)); body.push(row);
+  }
+  doc.autoTable({ head, body, startY:30, styles:{fontSize:7.5,cellPadding:2}, headStyles:{fillColor:[37,99,235],textColor:255,fontStyle:'bold'}, alternateRowStyles:{fillColor:[245,246,250]} });
+  doc.save(`Reactor_Report_${mName}_${year}.pdf`);
+}
+
+// ── ANALYSIS ──────────────────────────────────────────────────
+let analysisRange = 'today';
+let downtimeReactorFilter = 'ALL';
+let trendReactorFilter = 'ALL';
+const chartInstances = {};
+const REACTOR_CHART_COLORS = { R1:'#2563eb', R2:'#7c3aed', R3:'#0891b2', R4:'#059669' };
+
+window.setAnalysisRange = function(range, btn) {
+  analysisRange = range;
+  document.querySelectorAll('.range-chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  const customRow = document.getElementById('custom-range-row');
+  if (range === 'custom') {
+    customRow.classList.add('show');
+    if (!document.getElementById('analysis-from').value) {
+      const d = new Date(); d.setDate(d.getDate()-7);
+      document.getElementById('analysis-from').value = localDateStr(d);
+      document.getElementById('analysis-to').value = todayStr();
+    }
+    return; // wait for Apply click
+  } else {
+    customRow.classList.remove('show');
+  }
+  renderAnalysis();
+}
+
+function getAnalysisDateRange() {
+  const today = todayStr();
+  if (analysisRange === 'today') return [today, today];
+  if (analysisRange === '7') { const d = new Date(); d.setDate(d.getDate()-6); return [localDateStr(d), today]; }
+  if (analysisRange === '30') { const d = new Date(); d.setDate(d.getDate()-29); return [localDateStr(d), today]; }
+  if (analysisRange === 'month') { const d = new Date(); const first = new Date(d.getFullYear(), d.getMonth(), 1); return [localDateStr(first), today]; }
+  if (analysisRange === 'custom') {
+    const f = document.getElementById('analysis-from').value;
+    const t = document.getElementById('analysis-to').value;
+    if (f && t) return [f, t];
+  }
+  return [today, today];
+}
+
+function listDatesInRange(from, to) {
+  const dates = [];
+  let cur = new Date(from + 'T00:00:00');
+  const end = new Date(to + 'T00:00:00');
+  while (cur <= end) { dates.push(localDateStr(cur)); cur.setDate(cur.getDate()+1); }
+  return dates;
+}
+
+// Core: compute per-reactor, per-day stats from bookings + slot downtimes
+function computeReactorDayStats(rId, dateStr) {
+  const slots = Object.entries(allBookings)
+    .filter(([id, b]) => b.reactor === rId && b.date === dateStr && b.status !== 'cancelled')
+    .map(([id, b]) => ({ id, ...b }));
+  const rd = (allData[dateStr] || {})[rId] || {};
+
+  if (slots.length === 0) {
+    // No bookings = no data, period. We no longer fall back to old/stale manual
+    // start-stop fields, since those can be leftover from before a reactor had
+    // booking-driven slots and would otherwise show misleading numbers.
+    return { booked: 0, used: 0, down: 0, reasons: [], hasData: false };
+  }
+
+  let booked = 0, down = 0; const reasons = [];
+  slots.forEach(slot => {
+    const sm = slot.startMins || 0, em = slot.endMins || 0;
+    booked += (em - sm);
+    const sdts = (rd.slotDowntimes && rd.slotDowntimes[slot.id]) || [];
+    sdts.forEach(dt => {
+      const ds = parseTime(dt.start), de = parseTime(dt.end);
+      if (ds !== null && de !== null && de > ds) {
+        down += Math.min(de, em) - Math.max(ds, sm);
+        reasons.push(dt.reason || 'Unspecified');
+      }
+    });
+  });
+  down = Math.max(0, down);
+  const used = Math.max(0, booked - down);
+  return { booked, used, down, reasons, hasData: true };
+}
+
+// Aggregate over a date range for one reactor
+function aggregateReactorRange(rId, dates) {
+  let booked = 0, used = 0, down = 0; const reasonCounts = {};
+  dates.forEach(d => {
+    const s = computeReactorDayStats(rId, d);
+    booked += s.booked; used += s.used; down += s.down;
+    s.reasons.forEach(r => { reasonCounts[r] = (reasonCounts[r]||0) + 1; });
+  });
+  return { booked, used, down, reasonCounts };
+}
+
+function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
+
+// A tiny Chart.js plugin that draws a centered, muted caption over an otherwise-empty
+// chart. This keeps the axes, gridlines, and labels visible (so the chart is always
+// legible as "this is what this chart is for") instead of replacing the whole thing
+// with a blank box of text.
+function emptyChartOverlayPlugin(message) {
+  return {
+    id: 'emptyOverlay',
+    afterDraw(chart) {
+      const { ctx, chartArea: { left, top, width, height } } = chart;
+      ctx.save();
+      ctx.font = '13px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.fillStyle = '#9ca3af';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(message, left + width/2, top + height/2);
+      ctx.restore();
+    }
+  };
+}
+
+// Every chart's canvas lives inside a wrapper div with a permanent id "wrap-<canvasId>".
+// We always look up that wrapper directly (never via the canvas's own .parentElement,
+// since the canvas itself gets replaced by an empty-state message when there's no data —
+// at which point .parentElement-based lookups silently fail to find it again).
+function getChartWrap(canvasId) { return document.getElementById('wrap-' + canvasId); }
+function ensureCanvas(id) {
+  const wrap = getChartWrap(id);
+  if (wrap && !document.getElementById(id)) wrap.innerHTML = `<canvas id="${id}"></canvas>`;
+}
+
+window.renderAnalysis = function() {
+  const [from, to] = getAnalysisDateRange();
+  const dates = listDatesInRange(from, to);
+
+  // Per-reactor aggregates
+  const agg = {};
+  REACTORS.forEach(r => { agg[r] = aggregateReactorRange(r, dates); });
+
+  renderKPIs(agg, dates.length);
+  ensureCanvas('chart-utilization'); renderUtilizationChart(agg);
+  ensureCanvas('chart-efficiency'); renderEfficiencyChart(agg);
+  renderDowntimeReasonFilters();
+  ensureCanvas('chart-downtime-reason'); renderDowntimeReasonChart(agg);
+  ensureCanvas('chart-labwide'); renderLabWideChart(agg, dates);
+  ensureCanvas('chart-trend-efficiency'); renderTrendEfficiencyChart(dates);
+  renderTrendHoursFilters();
+  ensureCanvas('chart-trend-hours'); renderTrendHoursChart(dates);
+  renderSummaryTable(agg);
+}
+
+function renderKPIs(agg, numDays) {
+  let totalBooked=0, totalUsed=0, totalDown=0;
+  REACTORS.forEach(r => { totalBooked += agg[r].booked; totalUsed += agg[r].used; totalDown += agg[r].down; });
+  const overallEff = totalBooked > 0 ? Math.round((totalUsed/totalBooked)*100) : 0;
+
+  // Best performing: highest efficiency among reactors that actually have booked time.
+  let best=null;
+  REACTORS.forEach(r => {
+    if (agg[r].booked <= 0) return;
+    const eff = (agg[r].used/agg[r].booked)*100;
+    if (!best || eff > best.eff) best = { r, eff };
+  });
+
+  // Needs Attention: the reactor with the MOST downtime (not just lowest efficiency on its own),
+  // and only flagged if it actually has meaningful downtime — a reactor at 100% efficiency
+  // should never show up here, and we don't flag anything if there's no downtime anywhere.
+  let worst=null;
+  REACTORS.forEach(r => {
+    if (agg[r].booked <= 0 || agg[r].down <= 0) return; // no downtime = nothing to flag
+    if (!worst || agg[r].down > worst.down) worst = { r, down: agg[r].down, eff: (agg[r].used/agg[r].booked)*100 };
+  });
+
+  const kpis = [
+    { label: 'Total Booked Time', val: totalBooked>0?fmt(totalBooked):'—', sub: `Across ${numDays} day${numDays>1?'s':''}, all reactors`, cls:'accent' },
+    { label: 'Total Used Time', val: totalUsed>0?fmt(totalUsed):'—', sub: `Actual reactor run time`, cls:'green' },
+    { label: 'Total Downtime', val: totalDown>0?fmt(totalDown):'0m', sub: `Lost time across all reactors`, cls:'red' },
+    { label: 'Overall Efficiency', val: totalBooked>0?(overallEff+'%'):'—', sub: `Used ÷ Booked, lab-wide`, cls: totalBooked===0?'amber':(overallEff>=85?'green':(overallEff>=60?'amber':'red')) },
+    { label: 'Best Performing', val: best ? `Reactor ${best.r.replace('R','')}` : '—', sub: best ? `${Math.round(best.eff)}% efficiency` : 'No bookings yet', cls:'green' },
+    { label: 'Needs Attention', val: worst ? `Reactor ${worst.r.replace('R','')}` : 'None', sub: worst ? `${fmt(worst.down)} downtime · ${Math.round(worst.eff)}% efficiency` : 'No downtime recorded 🎉', cls:'red' },
+  ];
+  document.getElementById('kpi-grid').innerHTML = kpis.map(k => `
+    <div class="kpi-card">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-val ${k.cls}">${k.val}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`).join('');
+}
+
+function renderUtilizationChart(agg) {
+  destroyChart('utilization');
+  ensureCanvas('chart-utilization');
+  const totalAcrossAll = REACTORS.reduce((acc,r) => acc + agg[r].booked, 0);
+  const ctx = document.getElementById('chart-utilization').getContext('2d');
+  chartInstances.utilization = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: REACTORS.map(r => 'Reactor ' + r.replace('R','')),
+      datasets: [
+        { label: 'Booked (hrs)', data: REACTORS.map(r => +(agg[r].booked/60).toFixed(2)), backgroundColor: '#93c5fd' },
+        { label: 'Used (hrs)', data: REACTORS.map(r => +(agg[r].used/60).toFixed(2)), backgroundColor: '#16a34a' },
+        { label: 'Downtime (hrs)', data: REACTORS.map(r => +(agg[r].down/60).toFixed(2)), backgroundColor: '#dc2626' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        // Show a centered "no data" caption ON TOP of the empty axes, instead of hiding the chart entirely.
+        ...(totalAcrossAll <= 0 ? { tooltip: { enabled: false } } : {})
+      },
+      scales: { y: { beginAtZero: true, max: totalAcrossAll <= 0 ? 10 : undefined, title: { display: true, text: 'Hours' } } }
+    },
+    plugins: totalAcrossAll <= 0 ? [emptyChartOverlayPlugin('No bookings in this range yet')] : []
+  });
+}
+
+function renderEfficiencyChart(agg) {
+  destroyChart('efficiency');
+  ensureCanvas('chart-efficiency');
+  const totalAcrossAll = REACTORS.reduce((acc,r) => acc + agg[r].booked, 0);
+  // Only plot reactors that actually have booked time — unbooked reactors are omitted, not shown as 0%.
+  // If literally nothing is booked anywhere, fall back to showing all 4 reactor labels at 0 so the
+  // axis structure is still meaningful instead of a blank chart with no labels at all.
+  const activeReactors = totalAcrossAll > 0 ? REACTORS.filter(r => agg[r].booked > 0) : REACTORS;
+  const effVals = activeReactors.map(r => agg[r].booked > 0 ? Math.round((agg[r].used/agg[r].booked)*100) : 0);
+  const colors = effVals.map(v => v >= 85 ? '#16a34a' : (v >= 60 ? '#d97706' : '#dc2626'));
+  const ctx = document.getElementById('chart-efficiency').getContext('2d');
+  chartInstances.efficiency = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: activeReactors.map(r => 'Reactor ' + r.replace('R','')),
+      datasets: [{ label: 'Efficiency %', data: effVals, backgroundColor: totalAcrossAll <= 0 ? '#e5e7eb' : colors, borderRadius: 4 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'Efficiency %' } } }
+    },
+    plugins: totalAcrossAll <= 0 ? [emptyChartOverlayPlugin('No bookings in this range yet')] : []
+  });
+}
+
+function renderDowntimeReasonFilters() {
+  const el = document.getElementById('downtime-reactor-filter');
+  el.innerHTML = ['ALL', ...REACTORS].map(r => `<button class="rfilter-chip ${downtimeReactorFilter===r?'active':''}" onclick="setDowntimeFilter('${r}')">${r==='ALL'?'All Reactors':'R'+r.replace('R','')}</button>`).join('');
+}
+window.setDowntimeFilter = function(r) {
+  downtimeReactorFilter = r;
+  const [from, to] = getAnalysisDateRange();
+  const dates = listDatesInRange(from, to);
+  const agg = {}; REACTORS.forEach(rr => { agg[rr] = aggregateReactorRange(rr, dates); });
+  renderDowntimeReasonFilters();
+  ensureCanvas('chart-downtime-reason');
+  renderDowntimeReasonChart(agg);
+}
+
+function renderDowntimeReasonChart(agg) {
+  destroyChart('downtimeReason');
+  ensureCanvas('chart-downtime-reason');
+  const reactorsToShow = downtimeReactorFilter === 'ALL' ? REACTORS : [downtimeReactorFilter];
+  const combined = {};
+  reactorsToShow.forEach(r => {
+    Object.entries(agg[r].reasonCounts).forEach(([reason, count]) => { combined[reason] = (combined[reason]||0) + count; });
+  });
+  const labels = Object.keys(combined);
+  const ctx = document.getElementById('chart-downtime-reason').getContext('2d');
+  if (labels.length === 0) {
+    chartInstances.downtimeReason = new Chart(ctx, {
+      type: 'pie',
+      data: { labels: ['No downtime recorded'], datasets: [{ data: [1], backgroundColor: ['#e5e7eb'] }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } }, tooltip: { enabled: false } }
+      },
+      plugins: [emptyChartOverlayPlugin('No downtime recorded 🎉')]
+    });
+    return;
+  }
+  const palette = ['#dc2626','#d97706','#2563eb','#7c3aed','#0891b2','#059669','#db2777','#6b7280'];
+  chartInstances.downtimeReason = new Chart(ctx, {
+    type: 'pie',
+    data: { labels, datasets: [{ data: labels.map(l => combined[l]), backgroundColor: labels.map((_,i) => palette[i % palette.length]) }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } } } }
+  });
+}
+
+function renderLabWideChart(agg, dates) {
+  destroyChart('labwide');
+  ensureCanvas('chart-labwide');
+  let totalUsed=0, totalDown=0, totalUnbooked=0;
+  const workWindowMins = dates.length * 24 * 60; // full day window per reactor per day
+  REACTORS.forEach(r => {
+    totalUsed += agg[r].used;
+    totalDown += agg[r].down;
+  });
+  const totalPossible = REACTORS.length * workWindowMins;
+  const totalBookedAll = REACTORS.reduce((acc,r) => acc + agg[r].booked, 0);
+  totalUnbooked = Math.max(0, totalPossible - totalBookedAll);
+
+  // This chart is always meaningful — "100% Unbooked/Idle" is itself a valid, informative
+  // result when nothing has been booked, so we never hide it behind an empty-state message.
+  const ctx = document.getElementById('chart-labwide').getContext('2d');
+  chartInstances.labwide = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Ran', 'Downtime', 'Unbooked / Idle'],
+      datasets: [{ data: [+(totalUsed/60).toFixed(1), +(totalDown/60).toFixed(1), +(totalUnbooked/60).toFixed(1)], backgroundColor: ['#16a34a','#dc2626','#e5e7eb'] }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed} hrs` } } }
+    }
+  });
+}
+
+function renderTrendEfficiencyChart(dates) {
+  destroyChart('trendEfficiency');
+  ensureCanvas('chart-trend-efficiency');
+  const anyBooked = REACTORS.some(r => dates.some(d => computeReactorDayStats(r, d).booked > 0));
+  const datasets = REACTORS.map(r => {
+    const data = dates.map(d => { const s = computeReactorDayStats(r, d); return s.booked > 0 ? Math.round((s.used/s.booked)*100) : null; });
+    return { label: 'Reactor ' + r.replace('R',''), data, borderColor: REACTOR_CHART_COLORS[r], backgroundColor: REACTOR_CHART_COLORS[r], tension: 0.3, spanGaps: true };
+  });
+  const ctx = document.getElementById('chart-trend-efficiency').getContext('2d');
+  chartInstances.trendEfficiency = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates.map(d => fmtDate(d)), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } },
+      scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'Efficiency %' } }, x: { ticks: { maxRotation: 45, minRotation: dates.length>10?45:0 } } }
+    },
+    plugins: anyBooked ? [] : [emptyChartOverlayPlugin('No bookings in this range yet')]
+  });
+}
+
+function renderTrendHoursFilters() {
+  const el = document.getElementById('trend-reactor-filter');
+  el.innerHTML = ['ALL', ...REACTORS].map(r => `<button class="rfilter-chip ${trendReactorFilter===r?'active':''}" onclick="setTrendFilter('${r}')">${r==='ALL'?'All Reactors':'R'+r.replace('R','')}</button>`).join('');
+}
+window.setTrendFilter = function(r) {
+  trendReactorFilter = r;
+  const [from, to] = getAnalysisDateRange();
+  const dates = listDatesInRange(from, to);
+  renderTrendHoursFilters();
+  ensureCanvas('chart-trend-hours');
+  renderTrendHoursChart(dates);
+}
+
+function renderTrendHoursChart(dates) {
+  destroyChart('trendHours');
+  ensureCanvas('chart-trend-hours');
+  const reactorsToShow = trendReactorFilter === 'ALL' ? REACTORS : [trendReactorFilter];
+  const anyBooked = reactorsToShow.some(r => dates.some(d => computeReactorDayStats(r, d).booked > 0));
+  const datasets = [];
+  reactorsToShow.forEach(r => {
+    datasets.push({ label: `R${r.replace('R','')} Booked`, data: dates.map(d => +(computeReactorDayStats(r,d).booked/60).toFixed(2)), borderColor: REACTOR_CHART_COLORS[r], borderDash: [5,4], backgroundColor: 'transparent', tension: 0.3 });
+    datasets.push({ label: `R${r.replace('R','')} Used`, data: dates.map(d => +(computeReactorDayStats(r,d).used/60).toFixed(2)), borderColor: REACTOR_CHART_COLORS[r], backgroundColor: 'transparent', tension: 0.3 });
+  });
+  const ctx = document.getElementById('chart-trend-hours').getContext('2d');
+  chartInstances.trendHours = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates.map(d => fmtDate(d)), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } } },
+      scales: { y: { beginAtZero: true, max: anyBooked ? undefined : 10, title: { display: true, text: 'Hours' } }, x: { ticks: { maxRotation: 45, minRotation: dates.length>10?45:0 } } }
+    },
+    plugins: anyBooked ? [] : [emptyChartOverlayPlugin('No bookings in this range for this selection')]
+  });
+}
+
+function renderSummaryTable(agg) {
+  const tbody = document.getElementById('analysis-summary-tbody');
+  tbody.innerHTML = REACTORS.map(r => {
+    const a = agg[r];
+    const eff = a.booked > 0 ? Math.round((a.used/a.booked)*100) : 0;
+    const effClass = eff >= 85 ? 'eff-good' : (eff >= 60 ? 'eff-mid' : 'eff-poor');
+    let topReason = '—';
+    const entries = Object.entries(a.reasonCounts);
+    if (entries.length > 0) { entries.sort((x,y) => y[1]-x[1]); topReason = entries[0][0]; }
+    return `<tr>
+      <td style="font-weight:600">Reactor ${r.replace('R','')}</td>
+      <td>${a.booked > 0 ? fmt(a.booked) : '—'}</td>
+      <td>${a.used > 0 ? fmt(a.used) : '—'}</td>
+      <td>${a.down > 0 ? fmt(a.down) : '0m'}</td>
+      <td><span class="eff-pill ${effClass}">${a.booked>0 ? eff+'%' : 'No data'}</span></td>
+      <td>${topReason}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+function init() {
+  const today = todayStr();
+  document.getElementById('selected-date').value = today;
+  document.getElementById('booking-view-date').value = today;
+  // Set min date on booking date input
+  document.getElementById('book-date').min = today;
+  document.getElementById('today-label').textContent = new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  currentDate = today;
+  populateMonthSelects();
+  renderCards();
+  renderMonthly();
+  const saved = localStorage.getItem('reactor_firebase_cfg');
+  if (saved) {
+    try {
+      const cfg = JSON.parse(saved);
+      if (document.getElementById('cfg-apiKey')) document.getElementById('cfg-apiKey').value = cfg.apiKey || '';
+      if (document.getElementById('cfg-projectId')) document.getElementById('cfg-projectId').value = cfg.projectId || '';
+      if (document.getElementById('cfg-dbUrl')) document.getElementById('cfg-dbUrl').value = cfg.databaseURL || '';
+      initFirebase(cfg);
+    } catch(e) { document.getElementById('firebase-banner').style.display = 'flex'; }
+  } else {
+    document.getElementById('firebase-banner').style.display = 'flex';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
