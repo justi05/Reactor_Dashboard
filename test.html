@@ -1,0 +1,2245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Astral Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- Firebase "compat" build (classic script, not an ES module) — this is what
+     lets the whole app run identically whether it's opened straight from disk
+     (file://) or hosted (https://). The modular SDK loaded via `import()`
+     only works over http(s); browsers block ES module fetches from a file://
+     page with a CORS error, which silently stops the entire app script from
+     running — that's what "stuck on Connecting..." locally actually was. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f5f6fa; --surface: #ffffff; --border: #e2e4ea; --text: #1a1d23;
+  --muted: #6b7280; --accent: #2563eb; --accent-light: #eff6ff;
+  --green: #16a34a; --green-light: #f0fdf4; --red: #dc2626; --red-light: #fef2f2;
+  --amber: #d97706; --amber-light: #fffbeb; --radius: 10px; --shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* HEADER */
+header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 60px; position: sticky; top: 0; z-index: 100; }
+.logo { font-size: 1.05rem; font-weight: 600; }
+.logo span { color: var(--accent); }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.date-display { font-size: 0.82rem; color: var(--muted); background: var(--bg); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); }
+.conn-status { font-size: 0.75rem; display: flex; align-items: center; gap: 5px; }
+.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #ccc; }
+.conn-dot.connected { background: var(--green); }
+.conn-dot.error { background: var(--red); }
+
+/* NAV TABS */
+.tab-nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 2rem; display: flex; gap: 0; }
+.tab-btn { padding: 14px 22px; font-size: 0.88rem; font-weight: 500; border: none; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.15s; }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover:not(.active) { color: var(--text); background: var(--bg); }
+
+/* MODAL */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: var(--surface); border-radius: 14px; padding: 2rem; width: 520px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+.modal h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
+.modal p { font-size: 0.83rem; color: var(--muted); margin-bottom: 1.2rem; line-height: 1.5; }
+.modal label { display: block; font-size: 0.8rem; font-weight: 500; margin-bottom: 4px; color: var(--muted); }
+.modal input, .modal select, .modal textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; margin-bottom: 12px; outline: none; font-family: inherit; }
+.modal input:focus, .modal select:focus, .modal textarea:focus { border-color: var(--accent); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 0.5rem; }
+
+/* BUTTONS */
+.btn { padding: 8px 18px; border-radius: 7px; font-size: 0.85rem; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: background 0.15s; }
+.btn:hover { background: var(--bg); }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-success { background: var(--green); color: white; border-color: var(--green); }
+.btn-success:hover { background: #15803d; }
+.btn-danger { background: var(--red); color: white; border-color: var(--red); }
+.btn-danger:hover { background: #b91c1c; }
+.btn-sm { padding: 5px 12px; font-size: 0.78rem; }
+
+/* MAIN */
+main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 3rem; }
+.tab-section { display: none; }
+.tab-section.active { display: block; }
+
+/* ── BOOKING SECTION ─────────────────────────────────────────── */
+.booking-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 12px; }
+.booking-top h2 { font-size: 1rem; font-weight: 600; }
+.booking-top p { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+.bunker-tabs { display: flex; gap: 8px; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.rtab { padding: 7px 18px; border-radius: 20px; font-size: 0.83rem; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); transition: all 0.15s; }
+.rtab.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+.booking-date-row { display: flex; align-items: center; gap: 10px; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.booking-date-row label { font-size: 0.83rem; font-weight: 500; color: var(--muted); }
+.booking-date-row input[type=date] { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; background: var(--surface); outline: none; }
+.slots-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 1.2rem; }
+.slots-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.slots-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.slot-chip { padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; font-weight: 500; }
+.slot-free { background: var(--green-light); color: var(--green); border: 1px solid #bbf7d0; }
+.slot-booked { background: var(--red-light); color: var(--red); border: 1px solid #fecaca; }
+.slot-empty { color: var(--muted); font-size: 0.82rem; font-style: italic; }
+.bookings-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 1.2rem; }
+.bookings-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; }
+.cancel-badge { display: inline-block; background: var(--red-light); color: var(--red); font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid #fecaca; cursor: pointer; }
+.cancel-badge:hover { background: var(--red); color: white; }
+.confirmed-badge { display: inline-block; background: var(--green-light); color: var(--green); font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-grid .full { grid-column: 1 / -1; }
+.form-field label { display: block; font-size: 0.78rem; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+.form-field input, .form-field select, .form-field textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; outline: none; font-family: inherit; background: var(--bg); color: var(--text); }
+.form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--accent); background: white; }
+.conflict-alert { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 0.83rem; color: var(--red); margin-bottom: 12px; display: none; }
+.conflict-alert.show { display: block; }
+.success-alert { background: var(--green-light); border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-size: 0.83rem; color: var(--green); margin-bottom: 12px; display: none; }
+.success-alert.show { display: block; }
+.booking-download-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.booking-download-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; }
+.bdl-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.bdl-filters select, .bdl-filters input { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.83rem; background: var(--surface); outline: none; }
+.bid { font-size: 0.7rem; color: var(--muted); font-family: monospace; }
+
+/* ── BOOKING CALENDAR (Outlook-style month view) ─────────────── */
+.calendar-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 1.2rem; }
+.calendar-card-header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+.calendar-card-header h4 { font-size: 0.9rem; font-weight: 600; }
+.cal-sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.cal-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cal-controls select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.8rem; background: var(--surface); outline: none; }
+.cal-legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 0.78rem; color: var(--muted); }
+.cal-legend-item { display: flex; align-items: center; gap: 6px; }
+.cal-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.cal-dot-green { background: var(--green-light); border: 2px solid var(--green); }
+.cal-dot-red { background: var(--red-light); border: 2px solid var(--red); }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; }
+.cal-weekdays div { text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--muted); padding: 4px 0; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-day { position: relative; min-height: 88px; border-radius: 8px; padding: 6px; cursor: pointer; background: var(--surface); border: 2px solid var(--border); display: flex; flex-direction: column; transition: transform 0.1s, box-shadow 0.1s; }
+.cal-day:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.cal-day-muted { min-height: 88px; background: var(--bg); border: 2px solid transparent; color: var(--muted); opacity: 0.5; cursor: default; }
+.cal-day-muted:hover { box-shadow: none; transform: none; }
+.cal-day-num { font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; }
+.cal-day-booked { border-color: var(--green); background: var(--green-light); }
+.cal-day-free { border-color: var(--red); background: var(--red-light); }
+.cal-day-today .cal-day-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: white; }
+.cal-day-selected { outline: 3px solid var(--accent); outline-offset: -1px; }
+.cal-day-events { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+.cal-event { font-size: 0.68rem; padding: 2px 5px; border-radius: 4px; background: rgba(255,255,255,0.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid var(--accent); }
+.cal-event-more { font-size: 0.66rem; color: var(--muted); font-weight: 600; padding-left: 5px; }
+.cal-day-details { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.cal-day-details-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-day-details-header h4 { font-size: 0.88rem; font-weight: 600; }
+.cal-detail-row { display: grid; grid-template-columns: 50px 130px 1fr 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px; background: var(--bg); font-size: 0.8rem; margin-bottom: 6px; }
+.cal-detail-bunker { font-weight: 700; color: var(--accent); }
+.cal-detail-purpose { color: var(--muted); }
+.calendar-card:fullscreen, .calendar-card.cal-fullscreen { background: var(--surface); padding: 24px 40px; overflow-y: auto; }
+.calendar-card:fullscreen .cal-grid, .calendar-card.cal-fullscreen .cal-grid { gap: 10px; }
+.calendar-card:fullscreen .cal-day, .calendar-card.cal-fullscreen .cal-day { min-height: 130px; }
+.calendar-card:fullscreen .cal-event, .calendar-card.cal-fullscreen .cal-event { font-size: 0.75rem; padding: 4px 6px; }
+@media (max-width: 700px) {
+  .cal-day { min-height: 60px; font-size: 0.7rem; }
+  .cal-day-events { display: none; }
+  .cal-detail-row { grid-template-columns: 1fr; }
+}
+
+/* ── DAILY LOG STYLES ─────────────────────────────────────────── */
+.top-row { display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.top-row label { font-size: 0.82rem; font-weight: 500; color: var(--muted); }
+.top-row input[type=date] { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; background: var(--surface); color: var(--text); outline: none; }
+.bunker-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(530px, 1fr)); gap: 1.2rem; margin-bottom: 1.5rem; }
+.bunker-grid.single-bunker { grid-template-columns: minmax(530px, 700px); justify-content: center; }
+.bunker-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.bunker-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.bunker-name { display: flex; align-items: center; gap: 8px; }
+.bunker-dot { width: 10px; height: 10px; border-radius: 50%; }
+.r1 .bunker-dot { background: #2563eb; } .r2 .bunker-dot { background: #7c3aed; }
+.r3 .bunker-dot { background: #0891b2; } .r4 .bunker-dot { background: #059669; }
+.bunker-name strong { font-size: 0.95rem; font-weight: 600; }
+.status-badge { font-size: 0.72rem; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+.status-running { background: var(--green-light); color: var(--green); }
+.status-idle { background: #f3f4f6; color: var(--muted); }
+.bunker-body { padding: 16px 18px; }
+
+/* No booking banner */
+.no-booking-banner { background: var(--green-light); border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; font-size: 0.82rem; color: var(--green); font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+
+/* Overall time row */
+.time-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-end; }
+.time-field { flex: 1; }
+.time-field label { display: block; font-size: 0.74rem; font-weight: 500; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+.time-field input { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.88rem; outline: none; background: var(--bg); }
+.time-field input:focus { border-color: var(--accent); background: white; }
+.time-field input[readonly] { background: #f0fdf4; color: var(--green); font-weight: 600; border-color: #bbf7d0; cursor: default; }
+
+/* Overall stats bar */
+.stats-bar { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+.stat-box { flex: 1; padding: 10px 14px; text-align: center; border-right: 1px solid var(--border); }
+.stat-box:last-child { border-right: none; }
+.stat-label { font-size: 0.7rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-val { font-size: 1.15rem; font-weight: 600; margin-top: 2px; }
+.stat-val.green { color: var(--green); } .stat-val.red { color: var(--red); } .stat-val.amber { color: var(--amber); }
+.prog-wrap { margin-bottom: 14px; }
+.prog-label { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-bottom: 5px; }
+.prog-track { height: 8px; background: var(--red-light); border-radius: 4px; overflow: hidden; border: 1px solid #fecaca; }
+.prog-fill { height: 100%; background: var(--green); border-radius: 4px; transition: width 0.4s; }
+
+/* BOOKING SLOTS in daily log */
+.slots-section-label { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.booking-slot-block { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+.booking-slot-header { background: var(--accent-light); padding: 9px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+.booking-slot-title { font-size: 0.82rem; font-weight: 600; color: var(--accent); }
+.booking-slot-meta { font-size: 0.75rem; color: var(--muted); }
+.booking-slot-body { padding: 12px 14px; }
+
+/* Slot mini stats */
+.slot-stats-bar { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+.slot-stat { flex: 1; padding: 7px 10px; text-align: center; border-right: 1px solid var(--border); }
+.slot-stat:last-child { border-right: none; }
+.slot-stat-label { font-size: 0.65rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.03em; }
+.slot-stat-val { font-size: 0.95rem; font-weight: 600; margin-top: 1px; }
+
+/* Downtime rows */
+.section-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.dt-error-msg { font-size: 0.75rem; color: var(--red); margin: -2px 0 6px; display: flex; align-items: center; gap: 4px; }
+.add-row-btn { font-size: 0.78rem; color: var(--accent); background: none; border: none; cursor: pointer; padding: 2px 0; display: flex; align-items: center; gap: 4px; font-weight: 500; }
+.add-row-btn:hover { opacity: 0.75; }
+.notes-area { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.83rem; resize: vertical; min-height: 84px; line-height: 1.5; background: var(--bg); font-family: inherit; outline: none; color: var(--text); }
+.notes-area:focus { border-color: var(--accent); background: white; }
+.save-row { display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.save-btn { padding: 7px 20px; background: var(--accent); color: white; border: none; border-radius: 7px; font-size: 0.83rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.save-btn:hover { background: #1d4ed8; }
+.save-btn.saved { background: var(--green); }
+.daily-notes-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 1.5rem; }
+.daily-notes-card h3 { font-size: 0.88rem; font-weight: 600; margin-bottom: 10px; }
+.monthly-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.monthly-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px; }
+.monthly-header h3 { font-size: 0.92rem; font-weight: 600; }
+.month-select { display: flex; gap: 8px; align-items: center; }
+.month-select select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.83rem; background: var(--surface); outline: none; }
+table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+th { text-align: left; padding: 8px 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); background: var(--bg); }
+td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg); }
+
+/* ── MONTHLY LOG TABLE: spacing, dividers, sticky date, scroll hint ─── */
+.mtbl-outer { position: relative; }
+.mtbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+#monthly-table-wrap table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; }
+#monthly-table-wrap th, #monthly-table-wrap td { min-width: 78px; white-space: nowrap; padding: 9px 14px; }
+#monthly-table-wrap thead th:first-child, #monthly-table-wrap tbody td:first-child {
+  position: sticky; left: 0; z-index: 3; background: var(--surface); min-width: 92px;
+  box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+}
+#monthly-table-wrap thead th:first-child { z-index: 4; background: var(--bg); }
+/* thicker divider between each bunker's 4-column block */
+#monthly-table-wrap th.grp-end, #monthly-table-wrap td.grp-end { border-right: 2px solid var(--border); }
+#monthly-table-wrap thead tr:first-child th.grp-end { border-right: 2px solid var(--accent); }
+#monthly-table-wrap td.mtbl-notes { white-space: normal; min-width: 240px; max-width: 320px; line-height: 1.45; }
+#monthly-table-wrap th.mtbl-notes-th { min-width: 240px; }
+#monthly-table-wrap .mtbl-dash { color: var(--muted); }
+#monthly-table-wrap .mtbl-notrun { white-space: normal; color: var(--muted); font-size: 0.74rem; font-weight: 500; background: #fafafa; max-width: 260px; line-height: 1.4; }
+#monthly-table-wrap tr.mtbl-note-row td { padding-top: 0; padding-bottom: 6px; border-top: none; }
+#monthly-table-wrap tr.mtbl-note-row td:first-child {
+  position: static; left: auto; z-index: auto; background: transparent; min-width: 78px; box-shadow: none;
+}
+#monthly-table-wrap tr.mtbl-note-row + tr td { border-top: 1px solid var(--border); }
+#monthly-table-wrap .mtbl-note-cell { white-space: normal; color: var(--accent); font-size: 0.74rem; font-weight: 500; background: var(--accent-light); max-width: 260px; line-height: 1.4; border-radius: 0 0 6px 6px; }
+
+.mtbl-scroll-hint { display: flex; align-items: center; gap: 6px; font-size: 0.76rem; font-weight: 600; color: var(--accent); background: var(--accent-light); border: 1px solid #bfdbfe; border-radius: 20px; padding: 5px 12px; width: fit-content; margin-bottom: 8px; animation: mtbl-nudge 1.6s ease-in-out infinite; }
+.mtbl-scroll-hint span { display: inline-block; animation: mtbl-arrow 1.6s ease-in-out infinite; }
+.mtbl-scroll-hint.hide { display: none; }
+@keyframes mtbl-nudge { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+@keyframes mtbl-arrow { 0%,100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+.mtbl-fade-right { position: absolute; top: 32px; bottom: 2px; right: 1px; width: 28px; pointer-events: none; background: linear-gradient(to right, rgba(255,255,255,0), var(--surface)); border-radius: 0 8px 8px 0; transition: opacity 0.2s; }
+.mtbl-fade-right.hide { opacity: 0; }
+.tag-run { display: inline-block; background: var(--green-light); color: var(--green); font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
+.download-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+
+/* TOAST */
+#toast { position: fixed; bottom: 24px; right: 24px; background: #1a1d23; color: white; padding: 10px 18px; border-radius: 8px; font-size: 0.83rem; font-weight: 500; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 999; }
+#toast.show { opacity: 1; }
+
+/* ── ANALYSIS SECTION ─────────────────────────────────────────── */
+.analysis-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 12px; }
+.analysis-top h2 { font-size: 1rem; font-weight: 600; }
+.analysis-top p { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+.analysis-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.analysis-filters label { font-size: 0.82rem; font-weight: 500; color: var(--muted); }
+.analysis-filters select, .analysis-filters input[type=date] { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.85rem; background: var(--surface); outline: none; }
+.range-chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.range-chip { padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); transition: all 0.15s; }
+.range-chip.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+.custom-range-row { display: none; align-items: center; gap: 8px; }
+.custom-range-row.show { display: flex; }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); }
+.kpi-label { font-size: 0.74rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.kpi-val { font-size: 1.5rem; font-weight: 700; }
+.kpi-val.green { color: var(--green); } .kpi-val.red { color: var(--red); } .kpi-val.amber { color: var(--amber); } .kpi-val.accent { color: var(--accent); }
+.kpi-sub { font-size: 0.74rem; color: var(--muted); margin-top: 3px; }
+
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.2rem; margin-bottom: 1.2rem; }
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.chart-card.full-width { grid-column: 1 / -1; }
+.chart-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; }
+.chart-card .chart-sub { font-size: 0.74rem; color: var(--muted); margin-bottom: 12px; }
+.chart-canvas-wrap { position: relative; height: 280px; }
+.chart-canvas-wrap.tall { height: 340px; }
+
+.bunker-filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.rfilter-chip { padding: 5px 13px; border-radius: 16px; font-size: 0.76rem; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: var(--bg); color: var(--muted); }
+.rfilter-chip.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+
+.summary-table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.summary-table-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; }
+.eff-pill { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 20px; }
+.eff-good { background: var(--green-light); color: var(--green); }
+.eff-mid { background: var(--amber-light); color: var(--amber); }
+.eff-poor { background: var(--red-light); color: var(--red); }
+
+@media (max-width: 600px) {
+  .bunker-grid { grid-template-columns: 1fr; }
+  .time-row { flex-wrap: wrap; }
+  main { padding: 1rem; }
+  .form-grid { grid-template-columns: 1fr; }
+  .chart-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span>Astral</span> Dashboard</div>
+  <div class="header-right">
+    <div class="conn-status" id="conn-status">
+      <div class="conn-dot" id="conn-dot"></div>
+      <span id="conn-label">Connecting...</span>
+    </div>
+    <button onclick="openSyncTools()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:0.78rem;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:5px">🛠 Data &amp; Sync</button>
+    <div class="date-display" id="today-label"></div>
+  </div>
+</header>
+
+<!-- NAV TABS — Booking first, Daily Log second -->
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('booking', this)">📅 Bunker Booking</button>
+  <button class="tab-btn" onclick="switchTab('dashboard', this)">📊 Daily Log</button>
+  <button class="tab-btn" onclick="switchTab('analysis', this)">📈 Analysis</button>
+</div>
+
+<!-- FIREBASE BANNER -->
+<div id="firebase-banner" style="display:none;background:#fff7ed;border-bottom:1px solid #fed7aa;padding:10px 2rem;align-items:center;gap:10px;font-size:0.83rem;color:#92400e;">
+  ⚙️ <strong style="color:#78350f">First time setup:</strong> Connect Firebase so all team members share the same data.
+  <button onclick="openConfig()" style="margin-left:auto;background:#ea580c;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:500;">Connect Firebase</button>
+</div>
+
+<!-- CONFIG MODAL -->
+<div class="modal-overlay" id="config-modal">
+  <div class="modal">
+    <h2>🔥 Connect Firebase</h2>
+    <p>Enter your Firebase project details. Saved in <strong>your browser only</strong> — never in the code or on GitHub. You only need to do this <strong>once per device</strong>.</p>
+    <label>API Key</label><input type="text" id="cfg-apiKey" placeholder="AIzaSy...">
+    <label>Project ID</label><input type="text" id="cfg-projectId" placeholder="testbunker-aaec3">
+    <label>Database URL (Realtime Database)</label><input type="text" id="cfg-dbUrl" placeholder="https://your-project-default-rtdb.firebasedatabase.app">
+    <div style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+      📌 Firebase Console → Project Settings → Your apps → SDK setup & configuration
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeConfig()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveConfig()">Save & Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- CANCEL BOOKING MODAL -->
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal">
+    <h2>Cancel Booking</h2>
+    <p>Are you sure you want to cancel this booking? This cannot be undone.</p>
+    <div id="cancel-booking-info" style="background:var(--bg);border-radius:8px;padding:12px;font-size:0.83rem;margin-bottom:16px;"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeCancelModal()">Keep Booking</button>
+      <button class="btn btn-danger" onclick="confirmCancel()">Yes, Cancel It</button>
+    </div>
+  </div>
+</div>
+
+<!-- DELETE BOOKING MODAL -->
+<div class="modal-overlay" id="delete-modal">
+  <div class="modal">
+    <h2>Delete Booking</h2>
+    <p>This permanently removes the booking everywhere — the bookings list, Monthly Report, and PDF exports — and frees up its time slot again. This cannot be undone.</p>
+    <div id="delete-booking-info" style="background:var(--bg);border-radius:8px;padding:12px;font-size:0.83rem;margin-bottom:16px;"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeDeleteModal()">Keep Booking</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">Yes, Delete It</button>
+    </div>
+  </div>
+</div>
+
+<main>
+
+<!-- ═══════════════════════════════════════════════════
+     TAB 1: BOOKING SYSTEM (now first)
+════════════════════════════════════════════════════ -->
+<div id="tab-booking" class="tab-section active">
+  <div class="booking-top">
+    <div>
+      <h2>Bunker Booking System</h2>
+      <p>Book a bunker for your experiment. Check available slots before booking.</p>
+    </div>
+    <button class="btn btn-primary" onclick="openBookingForm()">+ New Booking</button>
+  </div>
+
+  <div class="bunker-tabs" id="booking-bunker-tabs">
+    <button class="rtab active" onclick="selectBookingBunker('ALL',this)">All Bunkers</button>
+    <button class="rtab" onclick="selectBookingBunker('H1',this)">H1</button>
+    <button class="rtab" onclick="selectBookingBunker('H2',this)">H2</button>
+    <button class="rtab" onclick="selectBookingBunker('H3',this)">H3</button>
+    <button class="rtab" onclick="selectBookingBunker('H4',this)">H4</button>
+  </div>
+
+  <div class="booking-date-row">
+    <label>Select date to view:</label>
+    <input type="date" id="booking-view-date">
+    <button class="btn" onclick="refreshBookingView()">View</button>
+    <button class="btn btn-primary" onclick="setBookingToday()">Today</button>
+  </div>
+
+  <div class="slots-card">
+    <h4>🟢 Available Slots — <span id="slots-bunker-label">H1</span> on <span id="slots-date-label">—</span></h4>
+    <div class="slots-grid" id="slots-grid"><span class="slot-empty">Select a date to see available slots</span></div>
+  </div>
+
+  <div class="bookings-card">
+    <h4>📋 Bookings — <span id="bookings-day-label">—</span></h4>
+    <div style="overflow-x:auto">
+      <table id="bookings-table">
+        <thead><tr>
+          <th>Booking ID</th><th>Bunker</th><th>Date</th><th>From</th><th>To</th><th>Duration</th>
+          <th>Name</th><th>Organization</th><th>Reason of Running</th><th>Status</th><th>Action</th>
+        </tr></thead>
+        <tbody id="bookings-tbody"><tr><td colspan="11" style="text-align:center;color:var(--muted);padding:20px">Select a date to view bookings</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BOOKING FORM -->
+  <div id="booking-form-card" class="bookings-card" style="display:none">
+    <h4 id="booking-form-title">📝 New Booking Request</h4>
+    <div class="conflict-alert" id="conflict-alert"></div>
+    <div class="success-alert" id="success-alert"></div>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Select Bunker *</label>
+        <select id="book-bunker">
+          <option value="H1">H1</option><option value="H2">H2</option>
+          <option value="H3">H3</option><option value="H4">H4</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Date * (today or future only)</label>
+        <input type="date" id="book-date">
+      </div>
+      <div class="form-field">
+        <label>Start Time (24hr) *</label>
+        <input type="time" id="book-start">
+      </div>
+      <div class="form-field">
+        <label>End Time (24hr) *</label>
+        <input type="time" id="book-end">
+      </div>
+      <div class="form-field">
+        <label>Your Name *</label>
+        <input type="text" id="book-name" placeholder="Full name">
+      </div>
+      <div class="form-field full">
+        <label>Organization / Department *</label>
+        <input type="text" id="book-org">
+      </div>
+      <div class="form-field full">
+        <label>Reasons of Running *</label>
+        <select id="book-purpose">
+          <option value="">Select a reason...</option>
+          <option value="Medical Operations">Medical Operations</option>
+          <option value="Collaboration Operations">Collaboration Operations</option>
+          <option value="Engineering/Science Operations">Engineering/Science Operations</option>
+          <option value="Irradiation Services">Irradiation Services</option>
+        </select>
+      </div>
+      <div class="form-field full">
+        <label>Contact / Email (optional)</label>
+        <input type="text" id="book-contact">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;padding-top:14px;border-top:1px solid var(--border)">
+      <button class="btn" onclick="closeBookingForm()">Cancel</button>
+      <button class="btn btn-primary" id="booking-form-submit-btn" onclick="checkAndBook()">Check & Confirm Booking</button>
+    </div>
+  </div>
+
+  <!-- FULL CALENDAR VIEW -->
+  <div class="calendar-card" id="calendar-card">
+    <div class="calendar-card-header">
+      <div>
+        <h4>🗓️ Booking Calendar</h4>
+        <p class="cal-sub">Month view of every booking — click a date to see details</p>
+      </div>
+      <div class="cal-controls">
+        <select id="cal-bunker-filter" onchange="setCalBunkerFilter(this.value)">
+          <option value="ALL">All Bunkers</option>
+          <option value="H1">H1</option><option value="H2">H2</option>
+          <option value="H3">H3</option><option value="H4">H4</option>
+        </select>
+        <button class="btn btn-sm" onclick="calPrevMonth()">‹</button>
+        <span id="cal-month-label" style="font-weight:600;min-width:130px;text-align:center;display:inline-block"></span>
+        <button class="btn btn-sm" onclick="calNextMonth()">›</button>
+        <button class="btn btn-sm btn-primary" onclick="calToday()">Today</button>
+        <button class="btn btn-sm" onclick="toggleCalFullscreen()">⛶ Full Screen</button>
+      </div>
+    </div>
+    <div class="cal-legend">
+      <span class="cal-legend-item"><span class="cal-dot cal-dot-green"></span> Has bookings</span>
+      <span class="cal-legend-item"><span class="cal-dot cal-dot-red"></span> No bookings</span>
+    </div>
+    <div class="cal-weekdays">
+      <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+
+    <div class="cal-day-details" id="cal-day-details" style="display:none">
+      <div class="cal-day-details-header">
+        <h4 id="cal-selected-date-label"></h4>
+        <button class="btn btn-sm" onclick="closeCalDayDetails()">✕ Close</button>
+      </div>
+      <div id="cal-day-details-body"></div>
+    </div>
+  </div>
+
+  <!-- DOWNLOAD BOOKINGS -->
+  <div class="booking-download-card">
+    <h4>⬇ Download Booking Records</h4>
+    <div class="bdl-filters">
+      <label style="font-size:0.82rem;font-weight:500;color:var(--muted)">Month:</label>
+      <select id="bdl-month"></select>
+      <select id="bdl-year"></select>
+      <label style="font-size:0.82rem;font-weight:500;color:var(--muted)">Bunker:</label>
+      <select id="bdl-bunker">
+        <option value="ALL">All Bunkers</option>
+        <option value="H1">H1</option><option value="H2">H2</option>
+        <option value="H3">H3</option><option value="H4">H4</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-success" onclick="downloadBookingsCSV()">⬇ Download CSV</button>
+      <button class="btn btn-primary" onclick="downloadBookingsPDF()">⬇ Download PDF Report</button>
+    </div>
+  </div>
+</div><!-- end tab-booking -->
+
+<!-- ═══════════════════════════════════════════════════
+     TAB 2: DAILY LOG (now second)
+════════════════════════════════════════════════════ -->
+<div id="tab-dashboard" class="tab-section">
+  <div class="top-row">
+    <label>Viewing date:</label>
+    <input type="date" id="selected-date">
+    <button class="btn" onclick="loadDate()">Load</button>
+    <button class="btn btn-primary" onclick="setToday()">Today</button>
+  </div>
+  <div class="bunker-tabs" id="dashboard-bunker-tabs">
+    <button class="rtab active" onclick="selectDashboardBunker('ALL',this)">All Bunkers</button>
+    <button class="rtab" onclick="selectDashboardBunker('H1',this)">H1</button>
+    <button class="rtab" onclick="selectDashboardBunker('H2',this)">H2</button>
+    <button class="rtab" onclick="selectDashboardBunker('H3',this)">H3</button>
+    <button class="rtab" onclick="selectDashboardBunker('H4',this)">H4</button>
+  </div>
+  <div class="bunker-grid" id="bunker-grid"></div>
+  <div class="daily-notes-card">
+    <h3>📝 General notes for the day</h3>
+    <textarea class="notes-area" id="daily-notes" placeholder="Any lab-wide observations, maintenance notes, or general info for this day..."></textarea>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+      <button class="save-btn" onclick="saveDailyNotes()">Save notes</button>
+    </div>
+  </div>
+  <div class="monthly-card">
+    <div class="monthly-header">
+      <h3>Monthly log</h3>
+      <div class="month-select">
+        <select id="month-select" onchange="renderMonthly()"></select>
+        <select id="year-select" onchange="renderMonthly()"></select>
+      </div>
+    </div>
+    <div class="mtbl-outer" id="mtbl-outer">
+      <div class="mtbl-scroll-hint" id="mtbl-scroll-hint">
+        <span>⇄</span> Scroll to see H2 · H3 · H4 &amp; Notes
+      </div>
+      <div id="monthly-table-wrap" class="mtbl-wrap"></div>
+      <div class="mtbl-fade-right" id="mtbl-fade-right"></div>
+    </div>
+    <div class="download-row">
+      <button class="btn btn-success" onclick="downloadCSV()">⬇ Download CSV</button>
+      <button class="btn btn-primary" onclick="downloadPDF()">⬇ Download PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     TAB 3: ANALYSIS
+════════════════════════════════════════════════════ -->
+<div id="tab-analysis" class="tab-section">
+  <div class="analysis-top">
+    <div>
+      <h2>Bunker Analysis</h2>
+      <p>Booked time, utilization, efficiency and downtime trends across bunkers.</p>
+    </div>
+  </div>
+
+  <div class="analysis-filters">
+    <label>Range:</label>
+    <div class="range-chip-row" id="range-chip-row">
+      <button class="range-chip active" data-range="today" onclick="setAnalysisRange('today',this)">Today</button>
+      <button class="range-chip" data-range="7" onclick="setAnalysisRange('7',this)">Last 7 Days</button>
+      <button class="range-chip" data-range="30" onclick="setAnalysisRange('30',this)">Last 30 Days</button>
+      <button class="range-chip" data-range="month" onclick="setAnalysisRange('month',this)">This Month</button>
+      <button class="range-chip" data-range="custom" onclick="setAnalysisRange('custom',this)">Custom</button>
+    </div>
+    <div class="custom-range-row" id="custom-range-row">
+      <input type="date" id="analysis-from">
+      <span style="color:var(--muted);font-size:0.8rem">to</span>
+      <input type="date" id="analysis-to">
+      <button class="btn btn-sm" onclick="renderAnalysis()">Apply</button>
+    </div>
+  </div>
+
+  <!-- KPI cards -->
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <!-- Row 1: Utilization bar + Efficiency bar -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <h4>⏱ Bunker Utilization</h4>
+      <div class="chart-sub">Booked vs Used vs Downtime hours, per bunker</div>
+      <div class="chart-canvas-wrap" id="wrap-chart-utilization"><canvas id="chart-utilization"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h4>⚡ Efficiency by Bunker</h4>
+      <div class="chart-sub">Used time ÷ Booked time, per bunker</div>
+      <div class="chart-canvas-wrap" id="wrap-chart-efficiency"><canvas id="chart-efficiency"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Row 2: Booking reasons breakdown + Lab-wide donut -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <h4>📋 Booking Reasons Breakdown</h4>
+      <div class="chart-sub">What each bunker is actually being booked for</div>
+      <div class="bunker-filter-row" id="downtime-bunker-filter"></div>
+      <div class="chart-canvas-wrap" id="wrap-chart-downtime-reason"><canvas id="chart-downtime-reason"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h4>🚫 Reasons for Not Working</h4>
+      <div class="chart-sub">Why each bunker sat idle, from the reasons logged in the Daily Log</div>
+      <div class="bunker-filter-row" id="notrunning-bunker-filter"></div>
+      <div class="chart-canvas-wrap" id="wrap-chart-notrunning-reason"><canvas id="chart-notrunning-reason"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Summary table -->
+  <div class="summary-table-card">
+    <h4>📋 Bunker Comparison Summary</h4>
+    <div style="overflow-x:auto">
+      <table id="analysis-summary-table">
+        <thead><tr>
+          <th>Bunker</th><th>Total Booked</th><th>Total Used</th><th>Total Downtime</th><th>Efficiency</th><th>Most Common Downtime Reason</th>
+        </tr></thead>
+        <tbody id="analysis-summary-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</main>
+<div id="toast"></div>
+
+
+<script>
+// Tab switching is defined here, OUTSIDE the Firebase module, so the UI
+// always works even if Firebase/CDN scripts fail to load due to network restrictions.
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  btn.classList.add('active');
+  if (window.__onTabSwitch) window.__onTabSwitch(tab);
+}
+</script>
+<script>
+let initializeApp, getDatabase, ref, set, get, onValue;
+let firebaseSDKLoaded = false;
+try {
+  if (typeof firebase !== 'undefined' && firebase.database) {
+    // Thin adapters so the rest of the app can keep using the same
+    // modular-style calls (ref(db, path), set(refObj, val), onValue(refObj, cb))
+    // regardless of which Firebase build actually loaded underneath.
+    initializeApp = (cfg, name) => firebase.initializeApp(cfg, name);
+    getDatabase = (app) => app.database();
+    ref = (db, path) => db.ref(path);
+    set = (refObj, value) => refObj.set(value);
+    get = (refObj) => refObj.once('value');
+    onValue = (refObj, callback) => refObj.on('value', callback);
+    firebaseSDKLoaded = true;
+  }
+} catch (e) {
+  console.warn('Firebase SDK failed to load (network/CDN blocked). App will run in offline/local mode.', e);
+}
+
+const BUNKERS = ['H1','H2','H3','H4'];
+const BUNKER_COLORS = ['r1','r2','r3','r4'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+let db = null;
+let allData = {};
+let allBookings = {};
+
+// ── LOCAL PERSISTENCE (always-on baseline) ─────────────────────
+// Firebase requires a live connection to persist anything — if the DB
+// isn't connected, or a write races with a page refresh, data that
+// *looked* saved can vanish. To fix that, every save also writes
+// straight to localStorage synchronously. That becomes the source of
+// truth on load; Firebase (when connected) layers real-time sync on
+// top of it, but nothing depends on Firebase alone to survive a refresh.
+const LS_DATA_KEY = 'bunker_local_data';
+const LS_BOOKINGS_KEY = 'bunker_local_bookings';
+function persistLocalData() {
+  try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(allData)); } catch (e) { console.error('Local save (bunker_data) failed', e); }
+}
+function persistLocalBookings() {
+  try { localStorage.setItem(LS_BOOKINGS_KEY, JSON.stringify(allBookings)); } catch (e) { console.error('Local save (bookings) failed', e); }
+}
+function loadLocalData() {
+  try { const raw = localStorage.getItem(LS_DATA_KEY); return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+}
+function loadLocalBookings() {
+  try { const raw = localStorage.getItem(LS_BOOKINGS_KEY); return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+}
+let currentDate = '';
+let dayData = {};
+let activeBookingBunker = 'ALL';
+let dashboardBunkerFilter = 'ALL';
+let cancelBookingId = null;
+let deleteBookingId = null;
+let editBookingId = null;
+
+// ── HELPERS ───────────────────────────────────────────────────
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+function fmt(mins) {
+  if (mins <= 0) return '0m';
+  const h = Math.floor(mins/60), m = mins%60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function parseTime(t) { if (!t) return null; const [h,m] = t.split(':').map(Number); return h*60+m; }
+// Returns YYYY-MM-DD using LOCAL time (not UTC). toISOString() converts to UTC first,
+// which silently shifts the date backward for users in timezones ahead of UTC (like IST)
+// during early morning hours — that mismatch was causing bookings and analysis to look
+// at different calendar days. This function avoids that entirely.
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function todayStr() { return localDateStr(new Date()); }
+function genId() { return 'BK' + Date.now().toString(36).toUpperCase().slice(-6); }
+function fmtDate(d) { if (!d) return '—'; const [y,m,dd] = d.split('-'); return `${dd} ${MONTHS_SHORT[parseInt(m)-1]} ${y}`; }
+// Convert "HH:MM" (24hr) to "h:MM AM/PM" for clearer display, avoiding 24hr ambiguity.
+function fmt12(t) {
+  if (!t) return '—';
+  const [h, m] = t.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2,'0')} ${period}`;
+}
+function fmt24(t) {
+  if (!t) return '—';
+  const [h, m] = t.split(':').map(Number);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+function minsToHHMM(m) { return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`; }
+function minsTo12hr(m) { return fmt12(minsToHHMM(m)); }
+
+// ── TAB SWITCHING ─────────────────────────────────────────────
+window.__onTabSwitch = function(tab) {
+  if (tab === 'dashboard') { loadDayData(); }
+  if (tab === 'analysis') { renderAnalysis(); }
+}
+
+// ── FIREBASE ──────────────────────────────────────────────────
+function initFirebase(cfg) {
+  if (!firebaseSDKLoaded) {
+    document.getElementById('conn-dot').className = 'conn-dot error';
+    document.getElementById('conn-label').textContent = 'Offline (network blocked)';
+    toast('⚠️ Could not load Firebase — check your internet/network connection');
+    return false;
+  }
+  try {
+    const app = initializeApp(cfg, 'bunker-app');
+    db = getDatabase(app);
+    document.getElementById('conn-dot').className = 'conn-dot connected';
+    document.getElementById('conn-label').textContent = 'Connected';
+    document.getElementById('firebase-banner').style.display = 'none';
+    let firstDataSync = true, firstBookingsSync = true;
+    onValue(ref(db, 'bunker_data'), snap => {
+      const serverData = snap.val() || {};
+      if (firstDataSync) {
+        // One-time merge: push up any locally-saved dates the server
+        // doesn't have yet, instead of silently overwriting them.
+        firstDataSync = false;
+        const localOnly = {};
+        Object.keys(allData).forEach(dateStr => { if (!(dateStr in serverData)) localOnly[dateStr] = allData[dateStr]; });
+        if (Object.keys(localOnly).length) {
+          Object.entries(localOnly).forEach(([dateStr, rec]) => { set(ref(db, `bunker_data/${dateStr}`), rec).catch(e => console.error('Merge sync failed', e)); });
+          Object.assign(serverData, localOnly);
+        }
+      }
+      allData = serverData;
+      persistLocalData();
+      loadDayData(); renderMonthly();
+      if (document.getElementById('tab-analysis').classList.contains('active')) renderAnalysis();
+    });
+    onValue(ref(db, 'bookings'), snap => {
+      const serverBookings = snap.val() || {};
+      if (firstBookingsSync) {
+        firstBookingsSync = false;
+        const localOnly = {};
+        Object.keys(allBookings).forEach(id => { if (!(id in serverBookings)) localOnly[id] = allBookings[id]; });
+        if (Object.keys(localOnly).length) {
+          Object.entries(localOnly).forEach(([id, b]) => { set(ref(db, `bookings/${id}`), b).catch(e => console.error('Merge sync failed', e)); });
+          Object.assign(serverBookings, localOnly);
+        }
+      }
+      allBookings = serverBookings;
+      persistLocalBookings();
+      refreshBookingView(); if (currentDate) renderCards(); renderMonthly(); renderBookingCalendar();
+      if (document.getElementById('tab-analysis').classList.contains('active')) renderAnalysis();
+    });
+    return true;
+  } catch(e) {
+    document.getElementById('conn-dot').className = 'conn-dot error';
+    document.getElementById('conn-label').textContent = 'Not connected';
+    return false;
+  }
+}
+
+window.openConfig = function() { document.getElementById('config-modal').classList.add('open'); }
+window.closeConfig = function() { document.getElementById('config-modal').classList.remove('open'); }
+window.saveConfig = function() {
+  const apiKey = document.getElementById('cfg-apiKey').value.trim();
+  const projectId = document.getElementById('cfg-projectId').value.trim();
+  const databaseURL = document.getElementById('cfg-dbUrl').value.trim();
+  if (!apiKey || !projectId || !databaseURL) { alert('Please fill in all 3 fields.'); return; }
+  const cfg = { apiKey, projectId, databaseURL, authDomain: projectId + '.firebaseapp.com' };
+  localStorage.setItem('bunker_firebase_cfg', JSON.stringify(cfg));
+  closeConfig();
+  const ok = initFirebase(cfg);
+  if (ok) toast('✅ Firebase connected!');
+  else toast('❌ Connection failed — check your details.');
+}
+
+// ── GET BOOKINGS FOR A BUNKER ON A DATE ──────────────────────
+function getBookingsForDay(bunker, date) {
+  return Object.entries(allBookings)
+    .filter(([id, b]) => b.bunker === bunker && b.date === date && b.status !== 'cancelled')
+    .map(([id, b]) => ({ id, ...b }))
+    .sort((a, b) => (a.startMins||0) - (b.startMins||0));
+}
+
+// ── BOOKING CALENDAR (Outlook-style month view) ────────────────
+let calMonth = new Date().getMonth();
+let calYear = new Date().getFullYear();
+let calBunkerFilter = 'ALL';
+let calSelectedDate = null;
+
+function getBookingsForDate(dateStr, bunkerFilter) {
+  return Object.entries(allBookings)
+    .filter(([id, b]) => b.date === dateStr && b.status !== 'cancelled' && (bunkerFilter === 'ALL' || b.bunker === bunkerFilter))
+    .map(([id, b]) => ({ id, ...b }))
+    .sort((a, b) => (a.startMins || 0) - (b.startMins || 0));
+}
+
+function renderBookingCalendar() {
+  const grid = document.getElementById('cal-grid');
+  if (!grid) return;
+  document.getElementById('cal-month-label').textContent = `${MONTHS[calMonth]} ${calYear}`;
+  grid.innerHTML = '';
+
+  const firstOfMonth = new Date(calYear, calMonth, 1);
+  let startOffset = firstOfMonth.getDay() - 1; // Mon-first grid (getDay: 0=Sun)
+  if (startOffset < 0) startOffset = 6;
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const daysInPrevMonth = new Date(calYear, calMonth, 0).getDate();
+
+  const cells = [];
+  for (let i = startOffset; i > 0; i--) cells.push({ day: daysInPrevMonth - i + 1, otherMonth: true });
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ day: d, otherMonth: false, dateStr: `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
+  }
+  let next = 1;
+  while (cells.length % 7 !== 0) cells.push({ day: next++, otherMonth: true });
+
+  const today = todayStr();
+  cells.forEach(c => {
+    const div = document.createElement('div');
+    if (c.otherMonth) {
+      div.className = 'cal-day cal-day-muted';
+      div.innerHTML = `<span class="cal-day-num">${c.day}</span>`;
+      grid.appendChild(div);
+      return;
+    }
+    const bookings = getBookingsForDate(c.dateStr, calBunkerFilter);
+    div.className = 'cal-day ' + (bookings.length > 0 ? 'cal-day-booked' : 'cal-day-free');
+    if (c.dateStr === today) div.classList.add('cal-day-today');
+    if (c.dateStr === calSelectedDate) div.classList.add('cal-day-selected');
+    div.onclick = () => selectCalDate(c.dateStr);
+
+    let eventsHtml = bookings.slice(0, 3).map(b =>
+      `<div class="cal-event" style="border-left-color:${BUNKER_CHART_COLORS[b.bunker] || 'var(--accent)'}">${b.bunker} ${fmt12(b.start)} · ${b.name}</div>`
+    ).join('');
+    if (bookings.length > 3) eventsHtml += `<div class="cal-event-more">+${bookings.length - 3} more</div>`;
+
+    div.innerHTML = `<span class="cal-day-num">${c.day}</span><div class="cal-day-events">${eventsHtml}</div>`;
+    grid.appendChild(div);
+  });
+
+  // Keep the details panel in sync if a date is currently selected
+  if (calSelectedDate) renderCalDayDetails(calSelectedDate);
+}
+
+window.setCalBunkerFilter = function(v) { calBunkerFilter = v; renderBookingCalendar(); }
+window.calPrevMonth = function() { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderBookingCalendar(); }
+window.calNextMonth = function() { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderBookingCalendar(); }
+window.calToday = function() { const t = new Date(); calMonth = t.getMonth(); calYear = t.getFullYear(); renderBookingCalendar(); }
+
+function selectCalDate(dateStr) {
+  calSelectedDate = dateStr;
+  renderBookingCalendar();
+  renderCalDayDetails(dateStr);
+}
+
+function renderCalDayDetails(dateStr) {
+  const bookings = getBookingsForDate(dateStr, calBunkerFilter);
+  document.getElementById('cal-day-details').style.display = 'block';
+  document.getElementById('cal-selected-date-label').textContent = fmtDate(dateStr);
+  const body = document.getElementById('cal-day-details-body');
+  if (!bookings.length) {
+    body.innerHTML = `<p style="color:var(--muted);font-size:0.85rem">No bookings for this date${calBunkerFilter !== 'ALL' ? ' (' + calBunkerFilter + ')' : ''}.</p>`;
+    return;
+  }
+  body.innerHTML = bookings.map(b => `
+    <div class="cal-detail-row">
+      <span class="cal-detail-bunker">${b.bunker}</span>
+      <span>${fmt12(b.start)} – ${fmt12(b.end)}</span>
+      <span>${b.name} · ${b.org}</span>
+      <span class="cal-detail-purpose">${b.purpose || ''}</span>
+      <span class="bid">${b.id}</span>
+    </div>
+  `).join('');
+}
+
+window.closeCalDayDetails = function() {
+  calSelectedDate = null;
+  document.getElementById('cal-day-details').style.display = 'none';
+  renderBookingCalendar();
+}
+
+window.toggleCalFullscreen = function() {
+  const el = document.getElementById('calendar-card');
+  if (!document.fullscreenElement) {
+    (el.requestFullscreen ? el.requestFullscreen() : Promise.reject())
+      .then(() => el.classList.add('cal-fullscreen'))
+      .catch(() => toast('⚠️ Full screen not supported in this browser'));
+  } else {
+    document.exitFullscreen();
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  const el = document.getElementById('calendar-card');
+  if (el && !document.fullscreenElement) el.classList.remove('cal-fullscreen');
+});
+
+// ── DAILY LOG ─────────────────────────────────────────────────
+window.setToday = function() { document.getElementById('selected-date').value = todayStr(); loadDate(); }
+window.loadDate = function() { currentDate = document.getElementById('selected-date').value; if (!currentDate) return; loadDayData(); }
+
+function loadDayData() {
+  if (!currentDate) return;
+  dayData = JSON.parse(JSON.stringify(allData[currentDate] || {}));
+  renderCards();
+  document.getElementById('daily-notes').value = dayData.notes || '';
+}
+
+async function saveToDB() {
+  if (!currentDate) { toast('⚠️ No date selected'); return false; }
+  allData[currentDate] = JSON.parse(JSON.stringify(dayData));
+  persistLocalData(); // always succeeds locally, regardless of Firebase state
+  if (db) {
+    try {
+      await set(ref(db, `bunker_data/${currentDate}`), allData[currentDate]);
+    } catch (e) {
+      console.error('Firebase sync failed, kept locally', e);
+      toast('⚠️ Saved on this device — sync to server failed');
+    }
+  }
+  return true;
+}
+
+window.saveBunker = async function(rId) {
+  // Validate actual hrs not exceeding planned
+  const slots = getBookingsForDay(rId, currentDate);
+  let valid = true;
+  slots.forEach(slot => {
+    const slotMins = (slot.endMins||0) - (slot.startMins||0);
+    const plannedHrs = slotMins / 60;
+    const inp = document.getElementById(`actual-${rId}-${slot.id}`);
+    const errEl = document.getElementById(`actual-err-${rId}-${slot.id}`);
+    if (inp) {
+      const val = parseFloat(inp.value);
+      if (!isNaN(val) && val > plannedHrs) {
+        if (errEl) { errEl.textContent = `⚠️ Actual hrs (${val}) cannot exceed planned time (${fmt(slotMins)})`; errEl.style.display = 'block'; }
+        inp.style.borderColor = 'var(--red)';
+        valid = false;
+      } else {
+        if (errEl) errEl.style.display = 'none';
+        if (inp) inp.style.borderColor = '';
+      }
+    }
+  });
+  if (!valid) { toast('🚫 Actual hrs cannot exceed planned time for one or more slots'); return; }
+  collectBunkerData(rId);
+  const ok = await saveToDB();
+  if (ok) {
+    const btn = document.getElementById(`save-btn-${rId}`);
+    clearUnsaved(rId);
+    btn.classList.add('saved'); btn.textContent = '✓ Saved';
+    setTimeout(() => { btn.classList.remove('saved'); btn.textContent = 'Save'; }, 2000);
+    renderMonthly();
+  }
+}
+
+window.saveDailyNotes = async function() {
+  dayData.notes = document.getElementById('daily-notes').value;
+  const ok = await saveToDB();
+  if (ok) toast('Notes saved');
+}
+
+function collectBunkerData(rId) {
+  const slots = getBookingsForDay(rId, currentDate);
+  const slotActual = {};
+  slots.forEach(slot => {
+    const inp = document.getElementById(`actual-${rId}-${slot.id}`);
+    slotActual[slot.id] = inp ? parseFloat(inp.value) || 0 : 0;
+  });
+  const notes = document.getElementById(`${rId}-notes`) ? document.getElementById(`${rId}-notes`).value : '';
+  const reasonEl = document.getElementById(`${rId}-reason-not-running`);
+  const reasonNotRunning = reasonEl ? reasonEl.value : '';
+  dayData[rId] = { notes, slotActual, reasonNotRunning };
+}
+
+// ── RENDER BUNKER CARDS ──────────────────────────────────────
+window.selectDashboardBunker = function(rId, btn) {
+  dashboardBunkerFilter = rId;
+  document.querySelectorAll('#dashboard-bunker-tabs .rtab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderCards();
+}
+
+function renderCards() {
+  const grid = document.getElementById('bunker-grid');
+  grid.innerHTML = '';
+  const list = dashboardBunkerFilter === 'ALL' ? BUNKERS : [dashboardBunkerFilter];
+  grid.classList.toggle('single-bunker', list.length === 1);
+  list.forEach(rId => {
+    const i = BUNKERS.indexOf(rId);
+    const slots = getBookingsForDay(rId, currentDate);
+    const saved = dayData[rId] || {};
+    grid.innerHTML += buildCard(rId, BUNKER_COLORS[i], saved, slots);
+  });
+  // Init totals after cards rendered
+  list.forEach(rId => {
+    const slots = getBookingsForDay(rId, currentDate);
+    slots.forEach(slot => {
+      const slotMins = (slot.endMins||0) - (slot.startMins||0);
+      updateSlotActual(rId, slot.id, slotMins);
+    });
+    updateDayTotals(rId);
+  });
+}
+
+function buildCard(rId, colorClass, saved, slots) {
+  const hasBookings = slots.length > 0;
+
+  let slotsHTML = '';
+  if (hasBookings) {
+    slotsHTML = `<div class="slots-section-label">📋 Booked Slots</div>`;
+    slots.forEach(slot => {
+      const slotMins = (slot.endMins || 0) - (slot.startMins || 0);
+      const savedActual = (saved.slotActual && saved.slotActual[slot.id] != null) ? saved.slotActual[slot.id] : '';
+      const savedActualMins = savedActual !== '' ? Math.round(parseFloat(savedActual) * 60) : null;
+      const diffMins = savedActualMins !== null ? slotMins - savedActualMins : null;
+      slotsHTML += `
+      <div class="booking-slot-block">
+        <div class="booking-slot-header">
+          <div>
+            <div class="booking-slot-title">🕐 ${fmt24(slot.start)} – ${fmt24(slot.end)} &nbsp;·&nbsp; ${fmt(slotMins)}</div>
+            <div class="booking-slot-meta">${slot.name} · ${slot.org}</div>
+          </div>
+          <span class="bid">${slot.id}</span>
+        </div>
+        <div class="booking-slot-body">
+          <div class="slot-stats-bar" id="slot-stats-${rId}-${slot.id}">
+            <div class="slot-stat">
+              <div class="slot-stat-label">Planned</div>
+              <div class="slot-stat-val accent" id="ss-planned-${rId}-${slot.id}">${fmt(slotMins)}</div>
+            </div>
+            <div class="slot-stat">
+              <div class="slot-stat-label">Actual</div>
+              <div class="slot-stat-val green" id="ss-actual-${rId}-${slot.id}">${savedActualMins !== null ? fmt(savedActualMins) : '—'}</div>
+            </div>
+            <div class="slot-stat">
+              <div class="slot-stat-label">Difference</div>
+              <div class="slot-stat-val ${diffMins !== null ? (diffMins > 0 ? 'amber' : 'green') : 'amber'}" id="ss-diff-${rId}-${slot.id}">${diffMins !== null ? fmt(Math.max(0, diffMins)) : '—'}</div>
+            </div>
+          </div>
+          <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--muted);white-space:nowrap">Actual Hrs worked:</label>
+            <input type="number" id="actual-${rId}-${slot.id}" min="0" max="${(slotMins/60).toFixed(4)}" step="0.25"
+              value="${savedActual}"
+              placeholder="0.00"
+              style="width:90px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:0.85rem;font-weight:600"
+              oninput="updateSlotActual('${rId}','${slot.id}',${slotMins});markUnsaved('${rId}')">
+            <span style="font-size:0.78rem;color:var(--muted)">/ ${fmt(slotMins)} max</span>
+          </div>
+          <div class="dt-error-msg" id="actual-err-${rId}-${slot.id}" style="display:none;color:var(--red);font-size:0.78rem;margin-top:4px"></div>
+        </div>
+      </div>`;
+    });
+  } else {
+    const savedReason = (saved.reasonNotRunning) || '';
+    slotsHTML = `
+    <div class="no-booking-banner">✅ No bookings for today</div>
+    <div style="margin-top:10px">
+      <label style="font-size:0.8rem;font-weight:600;color:var(--muted);display:block;margin-bottom:6px">Reason Not Running</label>
+      <select id="${rId}-reason-not-running" onchange="markUnsaved('${rId}')"
+        style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.85rem;background:var(--bg);color:var(--text);outline:none;cursor:pointer">
+        <option value="">— Select a reason —</option>
+        <option value="No projects / Others" ${savedReason==='No projects / Others'?'selected':''}>No projects / Others</option>
+        <option value="Not enough operators" ${savedReason==='Not enough operators'?'selected':''}>Not enough operators</option>
+        <option value="Non R&D / external experiment setup or breakdown" ${savedReason==='Non R&D / external experiment setup or breakdown'?'selected':''}>Non R&D / external experiment setup or breakdown</option>
+        <option value="Visitors" ${savedReason==='Visitors'?'selected':''}>Visitors</option>
+        <option value="System upgrade / repairs" ${savedReason==='System upgrade / repairs'?'selected':''}>System upgrade / repairs</option>
+        <option value="Bunker maintenance work" ${savedReason==='Bunker maintenance work'?'selected':''}>Bunker maintenance work</option>
+      </select>
+    </div>`;
+  }
+
+  // Overall day summary
+  const totalPlannedMins = slots.reduce((a, s) => a + ((s.endMins||0)-(s.startMins||0)), 0);
+
+  const overallStatsHTML = hasBookings ? `
+  <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+    <div class="section-label" style="margin-bottom:8px">📊 Day Summary</div>
+    <div class="stats-bar">
+      <div class="stat-box"><div class="stat-label">Total Planned</div><div class="stat-val accent" id="${rId}-planned">${fmt(totalPlannedMins)}</div></div>
+      <div class="stat-box"><div class="stat-label">Total Actual</div><div class="stat-val green" id="${rId}-actual">—</div></div>
+      <div class="stat-box"><div class="stat-label">Utilisation</div><div class="stat-val amber" id="${rId}-pct">—</div></div>
+    </div>
+    <div class="prog-wrap">
+      <div class="prog-label"><span>Utilisation</span><span id="${rId}-prog-label">0%</span></div>
+      <div class="prog-track"><div class="prog-fill" id="${rId}-prog" style="width:0%"></div></div>
+    </div>
+  </div>` : '';
+
+  return `<div class="bunker-card ${colorClass}">
+    <div class="bunker-header">
+      <div class="bunker-name"><div class="bunker-dot"></div><strong>${rId}</strong></div>
+      <span class="status-badge ${hasBookings ? 'status-running' : 'status-idle'}" id="${rId}-badge">${hasBookings ? `${slots.length} Booking${slots.length>1?'s':''}` : 'No Bookings'}</span>
+    </div>
+    <div class="bunker-body">
+      ${slotsHTML}
+      ${overallStatsHTML}
+      <div style="margin-top:14px">
+        <div class="section-label" style="margin-bottom:5px">Notes / observations</div>
+        <textarea class="notes-area" id="${rId}-notes" placeholder="Any notes for this bunker today..." oninput="markUnsaved('${rId}')">${saved.notes||''}</textarea>
+      </div>
+      <div class="save-row" style="justify-content:space-between;align-items:center">
+        <span id="unsaved-flag-${rId}" style="display:none;font-size:0.76rem;color:var(--amber,#d97706);font-weight:600">⚠ Unsaved changes — click Save so this counts in the Monthly Report</span>
+        <button class="save-btn" id="save-btn-${rId}" onclick="saveBunker('${rId}')">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Mark a bunker card as having unsaved edits (called from oninput handlers)
+window.markUnsaved = function(rId) {
+  const flag = document.getElementById(`unsaved-flag-${rId}`);
+  const btn = document.getElementById(`save-btn-${rId}`);
+  if (flag) flag.style.display = 'inline';
+  if (btn && !btn.classList.contains('saved')) { btn.style.background = 'var(--amber,#d97706)'; btn.style.borderColor = 'var(--amber,#d97706)'; }
+}
+function clearUnsaved(rId) {
+  const flag = document.getElementById(`unsaved-flag-${rId}`);
+  const btn = document.getElementById(`save-btn-${rId}`);
+  if (flag) flag.style.display = 'none';
+  if (btn) { btn.style.background = ''; btn.style.borderColor = ''; }
+}
+
+// Called live on each actual-hrs input change
+window.updateSlotActual = function(rId, slotId, slotMins) {
+  const inp = document.getElementById(`actual-${rId}-${slotId}`);
+  const errEl = document.getElementById(`actual-err-${rId}-${slotId}`);
+  const actualEl = document.getElementById(`ss-actual-${rId}-${slotId}`);
+  const diffEl = document.getElementById(`ss-diff-${rId}-${slotId}`);
+  if (!inp) return;
+
+  const plannedHrs = slotMins / 60;
+  let val = parseFloat(inp.value);
+  if (isNaN(val) || val < 0) val = 0;
+  const actualMins = Math.round(val * 60);
+  const diffMins = slotMins - actualMins;
+
+  if (val > plannedHrs) {
+    inp.style.borderColor = 'var(--red)';
+    if (errEl) { errEl.textContent = `⚠️ Cannot exceed planned time (${fmt(slotMins)})`; errEl.style.display = 'block'; }
+  } else {
+    inp.style.borderColor = 'var(--green, #059669)';
+    if (errEl) errEl.style.display = 'none';
+  }
+
+  if (actualEl) actualEl.textContent = fmt(actualMins);
+  if (diffEl) {
+    diffEl.textContent = fmt(Math.max(0, diffMins));
+    diffEl.className = 'slot-stat-val ' + (diffMins > 0 ? 'amber' : 'green');
+  }
+  updateDayTotals(rId);
+}
+
+// Update overall day summary totals
+function updateDayTotals(rId) {
+  const slots = getBookingsForDay(rId, currentDate);
+  if (slots.length === 0) return;
+  let totalPlannedMins = 0, totalActualMins = 0;
+  slots.forEach(slot => {
+    const slotMins = (slot.endMins||0) - (slot.startMins||0);
+    totalPlannedMins += slotMins;
+    const inp = document.getElementById(`actual-${rId}-${slot.id}`);
+    const val = inp ? parseFloat(inp.value) : NaN;
+    const actualMins = isNaN(val) ? 0 : Math.round(Math.min(val, slotMins/60) * 60);
+    totalActualMins += actualMins;
+  });
+  const pct = totalPlannedMins > 0 ? Math.round((totalActualMins / totalPlannedMins) * 100) : 0;
+  const actEl = document.getElementById(`${rId}-actual`);
+  const pctEl = document.getElementById(`${rId}-pct`);
+  const progEl = document.getElementById(`${rId}-prog`);
+  const progLbl = document.getElementById(`${rId}-prog-label`);
+  const plannedEl = document.getElementById(`${rId}-planned`);
+  if (plannedEl) plannedEl.textContent = fmt(totalPlannedMins);
+  if (actEl) actEl.textContent = fmt(totalActualMins);
+  if (pctEl) pctEl.textContent = pct + '%';
+  if (progEl) progEl.style.width = pct + '%';
+  if (progLbl) progLbl.textContent = pct + '%';
+}
+
+// ── MONTHLY TABLE ─────────────────────────────────────────────
+function populateMonthSelects() {
+  [document.getElementById('month-select'), document.getElementById('bdl-month')].forEach(ms => {
+    if (!ms) return; ms.innerHTML = '';
+    MONTHS.forEach((m,i) => { const o = document.createElement('option'); o.value = i+1; o.textContent = m; ms.appendChild(o); });
+    ms.value = new Date().getMonth()+1;
+  });
+  [document.getElementById('year-select'), document.getElementById('bdl-year')].forEach(ys => {
+    if (!ys) return; ys.innerHTML = '';
+    const yr = new Date().getFullYear();
+    for (let y = yr-1; y <= yr+1; y++) { const o = document.createElement('option'); o.value = y; o.textContent = y; ys.appendChild(o); }
+    ys.value = yr;
+  });
+}
+
+// Small helper: render a value, or a muted dash when there's genuinely nothing to show
+function dashCell(val) {
+  return (val === null || val === undefined || val === '') ? '<span class="mtbl-dash">—</span>' : val;
+}
+
+window.renderMonthly = function() {
+  const month = parseInt(document.getElementById('month-select').value);
+  const year = parseInt(document.getElementById('year-select').value);
+  const days = new Date(year, month, 0).getDate();
+
+  // Two-row header: top row spans, second row sub-columns.
+  // Every 4th sub-column (Util %) gets a thicker "grp-end" divider so each
+  // bunker's block (H1 / H2 / H3 / H4) is visually separated.
+  let html = `<table>
+    <thead>
+      <tr>
+        <th rowspan="2" style="vertical-align:middle">Date</th>
+        ${BUNKERS.map(r => `<th colspan="4" class="grp-end" style="text-align:center">${r}</th>`).join('')}
+        <th rowspan="2" class="mtbl-notes-th" style="vertical-align:middle">Notes</th>
+      </tr>
+      <tr>
+        ${BUNKERS.map(() => `
+          <th style="font-size:0.72rem">Planned</th>
+          <th style="font-size:0.72rem">Actual</th>
+          <th style="font-size:0.72rem">Difference</th>
+          <th style="font-size:0.72rem" class="grp-end">Util %</th>
+        `).join('')}
+      </tr>
+    </thead>
+    <tbody>`;
+
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayRec = allData[dateStr] || {};
+
+    // Collect per-bunker notes FIRST so we know up front whether a note
+    // sub-row will follow — needed to decide the Date/Notes column rowspan.
+    const bunkerNotes = {};
+    BUNKERS.forEach(rId => {
+      const rd = dayRec[rId] || {};
+      if (rd.notes && rd.notes.trim()) bunkerNotes[rId] = rd.notes.trim();
+    });
+    const hasNoteRow = Object.keys(bunkerNotes).length > 0;
+
+    // When a note sub-row follows, span the Date cell across both rows so
+    // it sits vertically centered instead of leaving an empty block below it.
+    html += `<tr><td style="font-weight:600"${hasNoteRow ? ' rowspan="2"' : ''}>${String(d).padStart(2,'0')} ${MONTHS_SHORT[month-1]}</td>`;
+
+    BUNKERS.forEach(rId => {
+      const rd = dayRec[rId] || {};
+      const slots = Object.entries(allBookings)
+        .filter(([id, b]) => b.bunker === rId && b.date === dateStr && b.status !== 'cancelled')
+        .map(([id, b]) => ({ id, ...b }));
+
+      // Always render 4 separate <td> cells (never colspan) so column
+      // widths stay identical row-to-row and nothing overlaps or drifts.
+      if (slots.length > 0) {
+        // Sum planned minutes from bookings
+        let totalPlannedMins = 0;
+        slots.forEach(slot => {
+          totalPlannedMins += (slot.endMins || 0) - (slot.startMins || 0);
+        });
+        // Sum actual minutes from saved slotActual (stored as decimal hrs)
+        let totalActualMins = 0;
+        slots.forEach(slot => {
+          const savedHrs = rd.slotActual && rd.slotActual[slot.id] != null ? parseFloat(rd.slotActual[slot.id]) : 0;
+          totalActualMins += Math.round((isNaN(savedHrs) ? 0 : savedHrs) * 60);
+        });
+        totalActualMins = Math.min(totalActualMins, totalPlannedMins);
+        const diffMins = totalPlannedMins - totalActualMins;
+        const pct = totalPlannedMins > 0 ? Math.round((totalActualMins / totalPlannedMins) * 100) : 0;
+        html += `
+          <td>${fmt(totalPlannedMins)}</td>
+          <td><span class="tag-run">${fmt(totalActualMins)}</span></td>
+          <td style="color:${diffMins > 0 ? 'var(--amber,#d97706)' : 'var(--green)'}">${fmt(diffMins)}</td>
+          <td class="grp-end" style="font-weight:600;color:${pct>=90?'var(--green)':pct>=60?'var(--amber,#d97706)':'var(--red)'}">${pct}%</td>`;
+      } else {
+        // No bookings — Planned always stays its own dash (nothing was
+        // planned). If a "reason not running" was saved, the remaining
+        // Actual / Difference / Util % cells are pointless on their own,
+        // so merge them into a single "Not Running — <reason>" cell to
+        // save space and make the row easy to scan. If no reason was
+        // saved yet, fall back to three plain dashes.
+        const reason = rd.reasonNotRunning || '';
+        if (reason) {
+          html += `
+            <td colspan="4" class="grp-end mtbl-notrun" title="${reason.replace(/"/g,'&quot;')}">🚫 Not Running — ${reason}</td>`;
+        } else {
+          html += `
+            <td>${dashCell(null)}</td>
+            <td>${dashCell(null)}</td>
+            <td>${dashCell(null)}</td>
+            <td class="grp-end">${dashCell(null)}</td>`;
+        }
+      }
+    });
+
+    html += `<td class="mtbl-notes"${hasNoteRow ? ' rowspan="2"' : ''}>${(dayRec.notes||'—').replace(/</g,'&lt;')}</td></tr>`;
+
+    // Note sub-row: only rendered when at least one bunker has a saved note
+    // for this day. Each bunker's 4-column block shows its own note (or
+    // stays blank if that particular bunker has none), keeping every
+    // bunker's note directly under its own values instead of one shared cell.
+    if (hasNoteRow) {
+      html += `<tr class="mtbl-note-row">`;
+      BUNKERS.forEach(rId => {
+        const note = bunkerNotes[rId];
+        html += note
+          ? `<td colspan="4" class="grp-end mtbl-note-cell" title="${note.replace(/"/g,'&quot;')}">📝 ${note.replace(/</g,'&lt;')}</td>`
+          : `<td colspan="4" class="grp-end"></td>`;
+      });
+      html += `</tr>`;
+    }
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('monthly-table-wrap').innerHTML = html;
+  initMonthlyScrollUX();
+}
+
+// ── Scroll affordance: hint pill fades once the user scrolls, and the
+// right-edge fade disappears once they've scrolled to the end ──────────
+function initMonthlyScrollUX() {
+  const wrap = document.getElementById('monthly-table-wrap');
+  const hint = document.getElementById('mtbl-scroll-hint');
+  const fade = document.getElementById('mtbl-fade-right');
+  if (!wrap || !hint || !fade) return;
+
+  const isScrollable = wrap.scrollWidth > wrap.clientWidth + 4;
+  hint.classList.toggle('hide', !isScrollable);
+  fade.classList.toggle('hide', !isScrollable);
+  if (!isScrollable) return;
+
+  wrap.onscroll = () => {
+    hint.classList.add('hide');
+    const atEnd = wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 4;
+    fade.classList.toggle('hide', atEnd);
+  };
+}
+
+// ── BOOKING SYSTEM ────────────────────────────────────────────
+function computeFreeSlots(bookedIntervals) {
+  const sorted = [...bookedIntervals].sort((a,b) => a[0]-b[0]);
+  const merged = [];
+  for (const [s,e] of sorted) {
+    if (merged.length && s <= merged[merged.length-1][1]) merged[merged.length-1][1] = Math.max(merged[merged.length-1][1], e);
+    else merged.push([s,e]);
+  }
+  const free = []; let cur = 0;
+  for (const [s,e] of merged) { if (s > cur) free.push([cur, s]); cur = e; }
+  if (cur < 1440) free.push([cur, 1440]);
+  return free;
+}
+
+window.selectBookingBunker = function(rId, btn) {
+  activeBookingBunker = rId;
+  document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  refreshBookingView();
+}
+
+window.setBookingToday = function() {
+  document.getElementById('booking-view-date').value = todayStr();
+  refreshBookingView();
+}
+
+window.refreshBookingView = function() {
+  const date = document.getElementById('booking-view-date').value;
+  if (!date) return;
+  const bunkers = activeBookingBunker === 'ALL' ? BUNKERS : [activeBookingBunker];
+  const rLabel = activeBookingBunker === 'ALL' ? 'All Bunkers' : `${activeBookingBunker}`;
+  document.getElementById('slots-bunker-label').textContent = rLabel;
+  document.getElementById('slots-date-label').textContent = fmtDate(date);
+  document.getElementById('bookings-day-label').textContent = `${rLabel} — ${fmtDate(date)}`;
+
+  const slotsGrid = document.getElementById('slots-grid');
+  if (activeBookingBunker === 'ALL') {
+    let html = '';
+    BUNKERS.forEach(r => {
+      const bookings = getBookingsForDay(r, date);
+      const booked = bookings.map(b => [b.startMins, b.endMins]);
+      const free = computeFreeSlots(booked);
+      html += `<div style="width:100%;margin-bottom:10px"><div style="font-size:0.78rem;font-weight:600;color:var(--muted);margin-bottom:6px">${r}</div><div style="display:flex;flex-wrap:wrap;gap:6px">`;
+      if (free.length === 0) html += `<span class="slot-chip slot-booked">Fully booked</span>`;
+      else free.forEach(([s,e]) => { html += `<span class="slot-chip slot-free">${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+      booked.forEach(([s,e]) => { html += `<span class="slot-chip slot-booked">🔒 ${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+      html += '</div></div>';
+    });
+    slotsGrid.innerHTML = html || '<span class="slot-empty">No data</span>';
+  } else {
+    const bookings = getBookingsForDay(activeBookingBunker, date);
+    const booked = bookings.map(b => [b.startMins, b.endMins]);
+    const free = computeFreeSlots(booked);
+    let html = '';
+    if (free.length === 0) html += `<span class="slot-chip slot-booked">Fully booked for the day</span>`;
+    else free.forEach(([s,e]) => { html += `<span class="slot-chip slot-free">${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+    booked.forEach(([s,e]) => { html += `<span class="slot-chip slot-booked">🔒 ${minsTo12hr(s)} – ${minsTo12hr(e)}</span>`; });
+    slotsGrid.innerHTML = html || '<span class="slot-empty">Fully free — no bookings yet</span>';
+  }
+
+  // Render bookings table
+  const allForDay = [];
+  bunkers.forEach(r => { getBookingsForDay(r, date).forEach(b => allForDay.push(b)); });
+  Object.entries(allBookings)
+    .filter(([id,b]) => bunkers.includes(b.bunker) && b.date === date && b.status === 'cancelled')
+    .forEach(([id,b]) => allForDay.push({id,...b}));
+  allForDay.sort((a,b) => (a.startMins||0) - (b.startMins||0));
+
+  const tbody = document.getElementById('bookings-tbody');
+  if (allForDay.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:20px">No bookings for this day</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = allForDay.map(b => `<tr>
+    <td><span class="bid">${b.id}</span></td>
+    <td>${(b.bunker||'')}</td>
+    <td style="white-space:nowrap">${fmtDate(b.date)}</td>
+    <td>${b.start?fmt12(b.start):'—'}</td><td>${b.end?fmt12(b.end):'—'}</td>
+    <td>${b.startMins!=null&&b.endMins!=null?fmt(b.endMins-b.startMins):'—'}</td>
+    <td>${b.name||'—'}</td><td>${b.org||'—'}</td>
+    <td style="max-width:140px;font-size:0.78rem">${(b.purpose||'—').slice(0,60)}</td>
+    <td>${b.status==='cancelled'?'<span style="color:var(--red);font-size:0.75rem;font-weight:600">Cancelled</span>':'<span class="confirmed-badge">Confirmed</span>'}</td>
+    <td style="white-space:nowrap;display:flex;gap:6px">
+      <button class="cancel-badge" style="background:var(--accent-light);color:var(--accent);border-color:#bfdbfe" onclick="openEditBookingForm('${b.id}')">Edit</button>
+      ${b.status!=='cancelled'?`<button class="cancel-badge" onclick="openCancelModal('${b.id}')">Cancel</button>`:''}
+      <button class="cancel-badge" style="background:#fee2e2;color:var(--red);border-color:#fecaca" onclick="openDeleteModal('${b.id}')">Delete</button>
+    </td>
+  </tr>`).join('');
+}
+
+// ── BOOKING FORM ──────────────────────────────────────────────
+window.openBookingForm = function() {
+  document.getElementById('booking-form-card').style.display = 'block';
+  // Set min date to today to prevent past booking
+  const bookDateInput = document.getElementById('book-date');
+  bookDateInput.min = todayStr();
+  const viewDate = document.getElementById('booking-view-date').value;
+  // Only prefill if view date is today or future
+  bookDateInput.value = (viewDate && viewDate >= todayStr()) ? viewDate : todayStr();
+  document.getElementById('book-bunker').value = activeBookingBunker === 'ALL' ? 'H1' : activeBookingBunker;
+  document.getElementById('conflict-alert').classList.remove('show');
+  document.getElementById('success-alert').classList.remove('show');
+  document.getElementById('booking-form-card').scrollIntoView({behavior:'smooth'});
+}
+
+window.closeBookingForm = function() {
+  document.getElementById('booking-form-card').style.display = 'none';
+  ['book-name','book-org','book-purpose','book-contact'].forEach(id => document.getElementById(id).value = '');
+  editBookingId = null;
+  document.getElementById('booking-form-title').textContent = '📝 New Booking Request';
+  document.getElementById('booking-form-submit-btn').textContent = 'Check & Confirm Booking';
+}
+
+// Opens the same booking form pre-filled with an existing booking's details.
+// Saving re-runs the same conflict check (excluding this booking's own slot)
+// and updates the record in place, so it stays the same booking ID and
+// automatically reflects everywhere the booking is read from: the bookings
+// table, CSV/PDF downloads, the daily log, and the analysis section — all of
+// those are computed live from allBookings/allData, not a separate copy.
+window.openEditBookingForm = function(id) {
+  const b = allBookings[id];
+  if (!b) return;
+  editBookingId = id;
+  document.getElementById('booking-form-card').style.display = 'block';
+  const bookDateInput = document.getElementById('book-date');
+  bookDateInput.min = todayStr();
+  document.getElementById('book-bunker').value = b.bunker || 'H1';
+  bookDateInput.value = b.date || todayStr();
+  document.getElementById('book-start').value = b.start || '';
+  document.getElementById('book-end').value = b.end || '';
+  document.getElementById('book-name').value = b.name || '';
+  document.getElementById('book-org').value = b.org || '';
+  document.getElementById('book-purpose').value = b.purpose || '';
+  document.getElementById('book-contact').value = b.contact || '';
+  document.getElementById('booking-form-title').textContent = `✏️ Edit Booking — ${id}`;
+  document.getElementById('booking-form-submit-btn').textContent = 'Save Changes';
+  document.getElementById('conflict-alert').classList.remove('show');
+  document.getElementById('success-alert').classList.remove('show');
+  document.getElementById('booking-form-card').scrollIntoView({behavior:'smooth'});
+}
+
+window.checkAndBook = async function() {
+  const bunker = document.getElementById('book-bunker').value;
+  const date = document.getElementById('book-date').value;
+  const start = document.getElementById('book-start').value;
+  const end = document.getElementById('book-end').value;
+  const name = document.getElementById('book-name').value.trim();
+  const org = document.getElementById('book-org').value.trim();
+  const purpose = document.getElementById('book-purpose').value.trim();
+  const contact = document.getElementById('book-contact').value.trim();
+
+  const conflictEl = document.getElementById('conflict-alert');
+  const successEl = document.getElementById('success-alert');
+  conflictEl.classList.remove('show'); successEl.classList.remove('show');
+
+  // ── PAST DATE BLOCK ──────────────────────────────────────────
+  if (!date || date < todayStr()) {
+    conflictEl.textContent = '🚫 Bookings can only be made for today or future dates. Past dates are not allowed.';
+    conflictEl.classList.add('show'); return;
+  }
+
+  if (!start || !end || !name || !org || !purpose) {
+    conflictEl.textContent = '⚠️ Please fill in all required fields.';
+    conflictEl.classList.add('show'); return;
+  }
+  const sm = parseTime(start), em = parseTime(end);
+  if (em <= sm) {
+    conflictEl.textContent = '⚠️ End time must be after start time.';
+    conflictEl.classList.add('show'); return;
+  }
+
+  // Conflict check (excludes this booking's own slot when editing)
+  const existing = getBookingsForDay(bunker, date).filter(b => b.id !== editBookingId);
+  const conflict = existing.find(b => !(em <= b.startMins || sm >= b.endMins));
+  if (conflict) {
+    conflictEl.innerHTML = `🚫 <strong>Time conflict!</strong> ${bunker} is already booked from <strong>${fmt12(conflict.start)}</strong> to <strong>${fmt12(conflict.end)}</strong> by <strong>${conflict.name}</strong> (${conflict.org}).<br><br>Please choose a different time slot.`;
+    conflictEl.classList.add('show'); return;
+  }
+
+  const isEdit = !!editBookingId;
+  const id = isEdit ? editBookingId : genId();
+  const prior = isEdit ? allBookings[id] : null;
+  const booking = {
+    id, bunker, date, start, end, startMins: sm, endMins: em, name, org, purpose, contact,
+    status: prior ? prior.status : 'confirmed',
+    bookedAt: prior ? prior.bookedAt : new Date().toISOString(),
+    ...(isEdit ? { editedAt: new Date().toISOString() } : {})
+  };
+  allBookings[id] = booking;
+  persistLocalBookings(); // always succeeds locally, regardless of Firebase state
+  if (db) {
+    try { await set(ref(db, `bookings/${id}`), booking); }
+    catch (e) { console.error('Firebase sync failed, kept locally', e); toast(`⚠️ ${isEdit?'Edited':'Booked'} on this device — sync to server failed`); }
+  }
+  refreshBookingView();
+  if (currentDate) renderCards();
+  renderMonthly();
+  renderBookingCalendar();
+
+  successEl.textContent = isEdit
+    ? `✅ Booking updated! ID: ${id}. ${bunker} now reserved on ${fmtDate(date)} from ${fmt12(start)} to ${fmt12(end)}.`
+    : `✅ Booking confirmed! ID: ${id}. ${bunker} reserved on ${fmtDate(date)} from ${fmt12(start)} to ${fmt12(end)}.`;
+  successEl.classList.add('show');
+  document.getElementById('booking-view-date').value = date;
+  toast(isEdit ? `✏️ Booking ${id} updated!` : `✅ Booking ${id} confirmed!`);
+  setTimeout(() => closeBookingForm(), 3500);
+}
+
+// ── CANCEL BOOKING ────────────────────────────────────────────
+window.openCancelModal = function(id) {
+  cancelBookingId = id;
+  const b = allBookings[id]; if (!b) return;
+  document.getElementById('cancel-booking-info').innerHTML = `<strong>${b.name}</strong> · ${b.org}<br>${b.bunker} · ${fmtDate(b.date)} · ${fmt12(b.start)} – ${fmt12(b.end)}<br><span class="bid">${id}</span>`;
+  document.getElementById('cancel-modal').classList.add('open');
+}
+window.closeCancelModal = function() { document.getElementById('cancel-modal').classList.remove('open'); cancelBookingId = null; }
+window.confirmCancel = async function() {
+  if (!cancelBookingId) return;
+  if (allBookings[cancelBookingId]) allBookings[cancelBookingId].status = 'cancelled';
+  persistLocalBookings();
+  if (db) {
+    try { await set(ref(db, `bookings/${cancelBookingId}/status`), 'cancelled'); }
+    catch (e) { console.error('Firebase sync failed, kept locally', e); toast('⚠️ Cancelled on this device — sync to server failed'); }
+  }
+  refreshBookingView();
+  if (currentDate) renderCards();
+  renderMonthly();
+  renderBookingCalendar();
+  closeCancelModal();
+  toast(`Booking ${cancelBookingId} cancelled`);
+}
+
+// ── DELETE BOOKING ────────────────────────────────────────────
+// Unlike Cancel (which keeps the record, marked "cancelled", for history),
+// Delete permanently removes the booking everywhere: the bookings list,
+// the Monthly Report, PDF exports, and analysis — and its time slot
+// becomes bookable again since nothing references it any more.
+window.openDeleteModal = function(id) {
+  deleteBookingId = id;
+  const b = allBookings[id]; if (!b) return;
+  document.getElementById('delete-booking-info').innerHTML = `<strong>${b.name}</strong> · ${b.org}<br>${b.bunker} · ${fmtDate(b.date)} · ${fmt12(b.start)} – ${fmt12(b.end)}<br><span class="bid">${id}</span>${b.status==='cancelled'?'<br><span style="color:var(--red);font-size:0.75rem;font-weight:600">Currently: Cancelled</span>':''}`;
+  document.getElementById('delete-modal').classList.add('open');
+}
+window.closeDeleteModal = function() { document.getElementById('delete-modal').classList.remove('open'); deleteBookingId = null; }
+window.confirmDelete = async function() {
+  if (!deleteBookingId) return;
+  const id = deleteBookingId;
+  delete allBookings[id];        // fully removed — the slot is now free again
+  persistLocalBookings();
+  if (db) {
+    try { await set(ref(db, `bookings/${id}`), null); } // null = delete node in Firebase RTDB
+    catch (e) { console.error('Firebase sync failed, kept locally', e); toast('⚠️ Deleted on this device — sync to server failed'); }
+  }
+  refreshBookingView();
+  if (currentDate) renderCards();
+  renderMonthly();
+  renderBookingCalendar();
+  closeDeleteModal();
+  toast(`Booking ${id} deleted — slot is available again`);
+}
+
+// ── DOWNLOAD BOOKINGS CSV ─────────────────────────────────────
+window.downloadBookingsCSV = function() {
+  const month = parseInt(document.getElementById('bdl-month').value);
+  const year = parseInt(document.getElementById('bdl-year').value);
+  const filterBunker = document.getElementById('bdl-bunker').value;
+  let csv = 'Booking ID,Bunker,Date,Start,End,Duration (hrs),Name,Organization,Reason of Running,Contact,Status,Booked At\n';
+  Object.entries(allBookings).forEach(([id,b]) => {
+    if (filterBunker !== 'ALL' && b.bunker !== filterBunker) return;
+    if (!b.date) return;
+    const [y,m] = b.date.split('-');
+    if (parseInt(m) !== month || parseInt(y) !== year) return;
+    const dur = (b.startMins!=null&&b.endMins!=null) ? ((b.endMins-b.startMins)/60).toFixed(2) : '';
+    csv += `"${id}","${b.bunker}","${b.date}","${b.start}","${b.end}","${dur}","${b.name}","${b.org}","${(b.purpose||'').replace(/"/g,'""')}","${b.contact||''}","${b.status}","${b.bookedAt||''}"\n`;
+  });
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `Bunker_Bookings_${MONTHS[month-1]}_${year}.csv`; a.click();
+}
+
+// ── DOWNLOAD BOOKINGS PDF ─────────────────────────────────────
+window.downloadBookingsPDF = function() {
+  const { jsPDF } = window.jspdf;
+  const month = parseInt(document.getElementById('bdl-month').value);
+  const year = parseInt(document.getElementById('bdl-year').value);
+  const filterBunker = document.getElementById('bdl-bunker').value;
+  const mName = MONTHS[month-1];
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+  doc.setFontSize(16); doc.setFont(undefined,'bold');
+  doc.text(`Lab Bunker Booking Report — ${mName} ${year}`, 14, 18);
+  doc.setFontSize(9); doc.setFont(undefined,'normal');
+  doc.text(`Generated: ${new Date().toLocaleString()} | Filter: ${filterBunker==='ALL'?'All Bunkers':filterBunker}`, 14, 25);
+  const rows = [];
+  Object.entries(allBookings).forEach(([id,b]) => {
+    if (filterBunker !== 'ALL' && b.bunker !== filterBunker) return;
+    if (!b.date) return;
+    const [y,m] = b.date.split('-');
+    if (parseInt(m) !== month || parseInt(y) !== year) return;
+    const dur = (b.startMins!=null&&b.endMins!=null) ? fmt(b.endMins-b.startMins) : '—';
+    rows.push([id, `${b.bunker}`, fmtDate(b.date), b.start, b.end, dur, b.name, (b.org||'').slice(0,25), (b.purpose||'').slice(0,30), b.status]);
+  });
+  rows.sort((a,b) => a[2].localeCompare(b[2]));
+  doc.autoTable({ head:[['ID','Bunker','Date','From','To','Duration','Name','Organization','Reason','Status']], body:rows, startY:30, styles:{fontSize:7,cellPadding:2}, headStyles:{fillColor:[37,99,235],textColor:255,fontStyle:'bold'}, alternateRowStyles:{fillColor:[245,246,250]}, didParseCell:(data)=>{ if(data.section==='body'&&data.column.index===9&&data.cell.raw==='cancelled')data.cell.styles.textColor=[220,38,38]; } });
+  doc.addPage();
+  doc.setFontSize(13); doc.setFont(undefined,'bold');
+  doc.text(`Booking Summary — ${mName} ${year}`, 14, 18);
+  const sumRows = [];
+  BUNKERS.forEach(r => {
+    const bks = Object.values(allBookings).filter(b => b.bunker===r && b.date && parseInt(b.date.split('-')[1])===month && parseInt(b.date.split('-')[0])===year);
+    const confirmed = bks.filter(b=>b.status!=='cancelled');
+    const totalHrs = confirmed.reduce((acc,b)=>acc+((b.endMins||0)-(b.startMins||0)),0)/60;
+    sumRows.push([`${r}`, bks.length, confirmed.length, bks.length-confirmed.length, totalHrs.toFixed(1)+' hrs']);
+  });
+  doc.autoTable({ head:[['Bunker','Total Bookings','Confirmed','Cancelled','Total Booked Hours']], body:sumRows, startY:24, styles:{fontSize:9,cellPadding:3}, headStyles:{fillColor:[37,99,235],textColor:255,fontStyle:'bold'} });
+  doc.save(`Bunker_Bookings_${mName}_${year}.pdf`);
+}
+
+// ── DAILY LOG DOWNLOADS ───────────────────────────────────────
+window.downloadCSV = function() {
+  const month = parseInt(document.getElementById('month-select').value);
+  const year = parseInt(document.getElementById('year-select').value);
+  const days = new Date(year, month, 0).getDate();
+  let csv = 'Date,Bunker,Start,Stop,Planned (hrs),Actual (hrs),Difference (hrs),Util %,Notes\n';
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayRec = allData[dateStr] || {};
+    BUNKERS.forEach(rId => {
+      const slots = getBookingsForDay(rId, dateStr);
+      const rd = dayRec[rId] || {};
+      const stats = computeBunkerDayStats(rId, dateStr); // single source of truth (Planned/Actual)
+      const notes = (rd.notes || '').replace(/"/g, '""');
+      if (stats.hasData) {
+        const pct = stats.booked > 0 ? Math.round((stats.used / stats.booked) * 100) : 0;
+        csv += `"${dateStr}","${rId}","${slots[0].start}","${slots[slots.length-1].end}","${(stats.booked/60).toFixed(2)}","${(stats.used/60).toFixed(2)}","${(stats.down/60).toFixed(2)}","${pct}%","${notes}"\n`;
+      } else if (rd.reasonNotRunning) {
+        csv += `"${dateStr}","${rId}","","","","","","Not Running","${(rd.reasonNotRunning+ (notes?(' | '+notes):'')).replace(/"/g,'""')}"\n`;
+      } else {
+        csv += `"${dateStr}","${rId}","","","","","","",""\n`;
+      }
+    });
+  }
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Bunker_Data_${MONTHS[month-1]}_${year}.csv`;
+  a.click();
+}
+
+window.downloadPDF = function() {
+  const { jsPDF } = window.jspdf;
+  const month = parseInt(document.getElementById('month-select').value);
+  const year = parseInt(document.getElementById('year-select').value);
+  const days = new Date(year, month, 0).getDate();
+  const mName = MONTHS[month-1];
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+  doc.setFontSize(16); doc.setFont(undefined,'bold');
+  doc.text(`Lab Bunker Monthly Report — ${mName} ${year}`, 14, 18);
+  doc.setFontSize(9); doc.setFont(undefined,'normal');
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 25);
+
+  // Two-row header mirroring the on-screen Monthly log: bunker name spans
+  // its 4 sub-columns (Planned / Actual / Difference / Util %).
+  const head = [
+    [ { content:'Date', rowSpan:2, styles:{valign:'middle'} },
+      ...BUNKERS.flatMap(r => [{ content:r, colSpan:4, styles:{halign:'center'} }]),
+      { content:'Notes', rowSpan:2, styles:{valign:'middle'} } ],
+    [ ...BUNKERS.flatMap(() => ['Planned','Actual','Difference','Util %']) ]
+  ];
+
+  const body = [];
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayRec = allData[dateStr] || {};
+    const row = [`${String(d).padStart(2,'0')} ${MONTHS_SHORT[month-1]}`];
+
+    BUNKERS.forEach(rId => {
+      const rd = dayRec[rId] || {};
+      const slots = Object.entries(allBookings)
+        .filter(([id, b]) => b.bunker === rId && b.date === dateStr && b.status !== 'cancelled')
+        .map(([id, b]) => ({ id, ...b }));
+
+      if (slots.length > 0) {
+        // Same calculation used by the on-screen Monthly log
+        let totalPlannedMins = 0;
+        slots.forEach(slot => { totalPlannedMins += (slot.endMins||0) - (slot.startMins||0); });
+        let totalActualMins = 0;
+        slots.forEach(slot => {
+          const savedHrs = rd.slotActual && rd.slotActual[slot.id] != null ? parseFloat(rd.slotActual[slot.id]) : 0;
+          totalActualMins += Math.round((isNaN(savedHrs) ? 0 : savedHrs) * 60);
+        });
+        totalActualMins = Math.min(totalActualMins, totalPlannedMins);
+        const diffMins = totalPlannedMins - totalActualMins;
+        const pct = totalPlannedMins > 0 ? Math.round((totalActualMins / totalPlannedMins) * 100) : 0;
+        row.push(fmt(totalPlannedMins), fmt(totalActualMins), fmt(diffMins), pct + '%');
+      } else {
+        // No bookings: if a reason was saved, merge all 4 sub-columns
+        // (Planned / Actual / Difference / Util %) into one "Not Running"
+        // cell — matches the fully-merged cell shown on screen.
+        const reason = rd.reasonNotRunning || '';
+        if (reason) {
+          row.push({ content: `Not Running — ${reason}`, colSpan: 4, styles:{halign:'left', textColor:[107,114,128], fontStyle:'italic'} });
+        } else {
+          row.push('—', '—', '—', '—');
+        }
+      }
+    });
+
+    row.push((dayRec.notes||'—').slice(0,80));
+    body.push(row);
+  }
+
+  doc.autoTable({
+    head, body, startY:30,
+    styles:{fontSize:7.5, cellPadding:2},
+    headStyles:{fillColor:[37,99,235], textColor:255, fontStyle:'bold', halign:'center'},
+    alternateRowStyles:{fillColor:[245,246,250]},
+    didParseCell: (data) => {
+      // Thicker divider after each bunker's 4th sub-column (Util %),
+      // mirroring the on-screen group dividers.
+      const dividerCols = BUNKERS.map((_, i) => (i+1)*4); // last col index of each group (Date is col 0)
+      if (dividerCols.includes(data.column.index)) {
+        data.cell.styles.lineWidth = { top:0.1, right:0.5, bottom:0.1, left:0.1 };
+        data.cell.styles.lineColor = [37,99,235];
+      }
+    }
+  });
+  doc.save(`Bunker_Report_${mName}_${year}.pdf`);
+}
+
+// ── ANALYSIS ──────────────────────────────────────────────────
+let analysisRange = 'today';
+let downtimeBunkerFilter = 'ALL';
+let notRunningBunkerFilter = 'ALL';
+const chartInstances = {};
+const BUNKER_CHART_COLORS = { H1:'#2563eb', H2:'#7c3aed', H3:'#0891b2', H4:'#059669' };
+
+window.setAnalysisRange = function(range, btn) {
+  analysisRange = range;
+  document.querySelectorAll('.range-chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  const customRow = document.getElementById('custom-range-row');
+  if (range === 'custom') {
+    customRow.classList.add('show');
+    if (!document.getElementById('analysis-from').value) {
+      const d = new Date(); d.setDate(d.getDate()-7);
+      document.getElementById('analysis-from').value = localDateStr(d);
+      document.getElementById('analysis-to').value = todayStr();
+    }
+    return; // wait for Apply click
+  } else {
+    customRow.classList.remove('show');
+  }
+  renderAnalysis();
+}
+
+function getAnalysisDateRange() {
+  const today = todayStr();
+  if (analysisRange === 'today') return [today, today];
+  if (analysisRange === '7') { const d = new Date(); d.setDate(d.getDate()-6); return [localDateStr(d), today]; }
+  if (analysisRange === '30') { const d = new Date(); d.setDate(d.getDate()-29); return [localDateStr(d), today]; }
+  if (analysisRange === 'month') { const d = new Date(); const first = new Date(d.getFullYear(), d.getMonth(), 1); return [localDateStr(first), today]; }
+  if (analysisRange === 'custom') {
+    const f = document.getElementById('analysis-from').value;
+    const t = document.getElementById('analysis-to').value;
+    if (f && t) return [f, t];
+  }
+  return [today, today];
+}
+
+function listDatesInRange(from, to) {
+  const dates = [];
+  let cur = new Date(from + 'T00:00:00');
+  const end = new Date(to + 'T00:00:00');
+  while (cur <= end) { dates.push(localDateStr(cur)); cur.setDate(cur.getDate()+1); }
+  return dates;
+}
+
+// Core: compute per-bunker, per-day stats from bookings + saved Actual Hrs.
+// "booked" = Planned (sum of each booking's duration). "used" = Actual (sum
+// of the "Actual Hrs Worked" value saved per slot in the Daily Log) — the
+// exact same source the Monthly Report reads from, so every part of the
+// app agrees on one number.
+function computeBunkerDayStats(rId, dateStr) {
+  const slots = Object.entries(allBookings)
+    .filter(([id, b]) => b.bunker === rId && b.date === dateStr && b.status !== 'cancelled')
+    .map(([id, b]) => ({ id, ...b }));
+  const rd = (allData[dateStr] || {})[rId] || {};
+
+  if (slots.length === 0) {
+    // No bookings = no data, period. We no longer fall back to old/stale manual
+    // start-stop fields, since those can be leftover from before a bunker had
+    // booking-driven slots and would otherwise show misleading numbers.
+    return { booked: 0, used: 0, down: 0, reasons: rd.reasonNotRunning ? [rd.reasonNotRunning] : [], hasData: false };
+  }
+
+  let booked = 0, used = 0;
+  slots.forEach(slot => {
+    const sm = slot.startMins || 0, em = slot.endMins || 0;
+    const plannedMins = em - sm;
+    booked += plannedMins;
+    const savedHrs = rd.slotActual && rd.slotActual[slot.id] != null ? parseFloat(rd.slotActual[slot.id]) : 0;
+    let actualMins = Math.round((isNaN(savedHrs) ? 0 : savedHrs) * 60);
+    actualMins = Math.min(Math.max(0, actualMins), plannedMins); // same clamp as Monthly Report
+    used += actualMins;
+  });
+  const down = Math.max(0, booked - used); // shortfall between planned and actual
+  return { booked, used, down, reasons: [], hasData: true };
+}
+
+// Aggregate over a date range for one bunker
+function aggregateBunkerRange(rId, dates) {
+  let booked = 0, used = 0, down = 0; const reasonCounts = {};
+  dates.forEach(d => {
+    const s = computeBunkerDayStats(rId, d);
+    booked += s.booked; used += s.used; down += s.down;
+    s.reasons.forEach(r => { reasonCounts[r] = (reasonCounts[r]||0) + 1; });
+  });
+  return { booked, used, down, reasonCounts };
+}
+
+function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
+
+// A tiny Chart.js plugin that draws a centered, muted caption over an otherwise-empty
+// chart. This keeps the axes, gridlines, and labels visible (so the chart is always
+// legible as "this is what this chart is for") instead of replacing the whole thing
+// with a blank box of text.
+function emptyChartOverlayPlugin(message) {
+  return {
+    id: 'emptyOverlay',
+    afterDraw(chart) {
+      const { ctx, chartArea: { left, top, width, height } } = chart;
+      ctx.save();
+      ctx.font = '13px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.fillStyle = '#9ca3af';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(message, left + width/2, top + height/2);
+      ctx.restore();
+    }
+  };
+}
+
+// Every chart's canvas lives inside a wrapper div with a permanent id "wrap-<canvasId>".
+// We always look up that wrapper directly (never via the canvas's own .parentElement,
+// since the canvas itself gets replaced by an empty-state message when there's no data —
+// at which point .parentElement-based lookups silently fail to find it again).
+function getChartWrap(canvasId) { return document.getElementById('wrap-' + canvasId); }
+function ensureCanvas(id) {
+  const wrap = getChartWrap(id);
+  if (wrap && !document.getElementById(id)) wrap.innerHTML = `<canvas id="${id}"></canvas>`;
+}
+
+window.renderAnalysis = function() {
+  const [from, to] = getAnalysisDateRange();
+  const dates = listDatesInRange(from, to);
+
+  // Per-bunker aggregates
+  const agg = {};
+  BUNKERS.forEach(r => { agg[r] = aggregateBunkerRange(r, dates); });
+
+  renderKPIs(agg, dates.length);
+  ensureCanvas('chart-utilization'); renderUtilizationChart(agg);
+  ensureCanvas('chart-efficiency'); renderEfficiencyChart(agg);
+  renderDowntimeReasonFilters();
+  ensureCanvas('chart-downtime-reason'); renderDowntimeReasonChart(dates);
+  renderNotRunningReasonFilters();
+  ensureCanvas('chart-notrunning-reason'); renderNotRunningReasonChart(dates);
+  renderSummaryTable(agg);
+}
+
+function renderKPIs(agg, numDays) {
+  let totalBooked=0, totalUsed=0, totalDown=0;
+  BUNKERS.forEach(r => { totalBooked += agg[r].booked; totalUsed += agg[r].used; totalDown += agg[r].down; });
+  const overallEff = totalBooked > 0 ? Math.round((totalUsed/totalBooked)*100) : 0;
+
+  const kpis = [
+    { label: 'Total Booked Time', val: totalBooked>0?fmt(totalBooked):'—', sub: `Across ${numDays} day${numDays>1?'s':''}, all bunkers`, cls:'accent' },
+    { label: 'Total Used Time', val: totalUsed>0?fmt(totalUsed):'—', sub: `Actual bunker run time`, cls:'green' },
+    { label: 'Total Downtime', val: totalDown>0?fmt(totalDown):'0m', sub: `Lost time across all bunkers`, cls:'red' },
+    { label: 'Overall Efficiency', val: totalBooked>0?(overallEff+'%'):'—', sub: `Used ÷ Booked, lab-wide`, cls: totalBooked===0?'amber':(overallEff>=85?'green':(overallEff>=60?'amber':'red')) },
+  ];
+  document.getElementById('kpi-grid').innerHTML = kpis.map(k => `
+    <div class="kpi-card">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-val ${k.cls}">${k.val}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`).join('');
+}
+
+function renderUtilizationChart(agg) {
+  destroyChart('utilization');
+  ensureCanvas('chart-utilization');
+  const totalAcrossAll = BUNKERS.reduce((acc,r) => acc + agg[r].booked, 0);
+  const ctx = document.getElementById('chart-utilization').getContext('2d');
+  chartInstances.utilization = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: BUNKERS.map(r => r),
+      datasets: [
+        { label: 'Booked (hrs)', data: BUNKERS.map(r => +(agg[r].booked/60).toFixed(2)), backgroundColor: '#93c5fd' },
+        { label: 'Used (hrs)', data: BUNKERS.map(r => +(agg[r].used/60).toFixed(2)), backgroundColor: '#16a34a' },
+        { label: 'Downtime (hrs)', data: BUNKERS.map(r => +(agg[r].down/60).toFixed(2)), backgroundColor: '#dc2626' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        // Show a centered "no data" caption ON TOP of the empty axes, instead of hiding the chart entirely.
+        ...(totalAcrossAll <= 0 ? { tooltip: { enabled: false } } : {})
+      },
+      scales: { y: { beginAtZero: true, max: totalAcrossAll <= 0 ? 10 : undefined, title: { display: true, text: 'Hours' } } }
+    },
+    plugins: totalAcrossAll <= 0 ? [emptyChartOverlayPlugin('No bookings in this range yet')] : []
+  });
+}
+
+function renderEfficiencyChart(agg) {
+  destroyChart('efficiency');
+  ensureCanvas('chart-efficiency');
+  const totalAcrossAll = BUNKERS.reduce((acc,r) => acc + agg[r].booked, 0);
+  // Always plot all bunkers, in a fixed order, so the axis stays consistent
+  // and it's obvious at a glance which ones have no activity — an unused
+  // bunker shows as an empty column rather than disappearing from the chart.
+  const effVals = BUNKERS.map(r => agg[r].booked > 0 ? Math.round((agg[r].used/agg[r].booked)*100) : 0);
+  const colors = BUNKERS.map((r, i) => agg[r].booked > 0 ? (effVals[i] >= 85 ? '#16a34a' : (effVals[i] >= 60 ? '#d97706' : '#dc2626')) : '#e5e7eb');
+  const ctx = document.getElementById('chart-efficiency').getContext('2d');
+  chartInstances.efficiency = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: BUNKERS.map(r => r),
+      datasets: [{ label: 'Efficiency %', data: effVals, backgroundColor: colors, borderRadius: 4 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'Efficiency %' } } }
+    },
+    plugins: totalAcrossAll <= 0 ? [emptyChartOverlayPlugin('No bookings in this range yet')] : []
+  });
+}
+
+// Sum booked hours per "Reason of Running" (the purpose selected at
+// booking time), across the given bunkers and date range. This is what
+// actually tells you *why* a bunker is being used, sourced straight from
+// the booking form — not from the old per-slot downtime reasons, which
+// were never populated by any current save path.
+function aggregateBookingReasons(bunkers, dates) {
+  const dateSet = new Set(dates);
+  const totals = {};
+  Object.values(allBookings).forEach(b => {
+    if (b.status === 'cancelled') return;
+    if (!bunkers.includes(b.bunker)) return;
+    if (!dateSet.has(b.date)) return;
+    const reason = b.purpose || 'Unspecified';
+    const hrs = ((b.endMins||0) - (b.startMins||0)) / 60;
+    totals[reason] = (totals[reason] || 0) + hrs;
+  });
+  return totals;
+}
+
+function renderDowntimeReasonFilters() {
+  const el = document.getElementById('downtime-bunker-filter');
+  el.innerHTML = ['ALL', ...BUNKERS].map(r => `<button class="rfilter-chip ${downtimeBunkerFilter===r?'active':''}" onclick="setDowntimeFilter('${r}')">${r==='ALL'?'All Bunkers':r}</button>`).join('');
+}
+window.setDowntimeFilter = function(r) {
+  downtimeBunkerFilter = r;
+  const [from, to] = getAnalysisDateRange();
+  const dates = listDatesInRange(from, to);
+  renderDowntimeReasonFilters();
+  ensureCanvas('chart-downtime-reason');
+  renderDowntimeReasonChart(dates);
+}
+
+function renderDowntimeReasonChart(dates) {
+  destroyChart('downtimeReason');
+  ensureCanvas('chart-downtime-reason');
+  const bunkersToShow = downtimeBunkerFilter === 'ALL' ? BUNKERS : [downtimeBunkerFilter];
+  const combined = aggregateBookingReasons(bunkersToShow, dates);
+  const labels = Object.keys(combined);
+  const ctx = document.getElementById('chart-downtime-reason').getContext('2d');
+  if (labels.length === 0) {
+    chartInstances.downtimeReason = new Chart(ctx, {
+      type: 'pie',
+      data: { labels: ['No bookings yet'], datasets: [{ data: [1], backgroundColor: ['#e5e7eb'] }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } }, tooltip: { enabled: false } }
+      },
+      plugins: [emptyChartOverlayPlugin('No bookings in this range yet')]
+    });
+    return;
+  }
+  const palette = ['#2563eb','#d97706','#dc2626','#7c3aed','#0891b2','#059669','#db2777','#6b7280'];
+  chartInstances.downtimeReason = new Chart(ctx, {
+    type: 'pie',
+    data: { labels, datasets: [{ data: labels.map(l => +combined[l].toFixed(2)), backgroundColor: labels.map((_,i) => palette[i % palette.length]) }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed}h` } }
+      }
+    }
+  });
+}
+
+// Count days per "Reason Not Running" (the reason logged manually in the
+// Daily Log for a bunker on a day with no bookings at all), across the
+// given bunkers and date range. This is sourced straight from allData —
+// the same field the Monthly Report's "Not Running" rows and the Summary
+// Table's "Top Reason" column already read from — so every part of the
+// app agrees on one number.
+function aggregateNotRunningReasons(bunkers, dates) {
+  const totals = {};
+  bunkers.forEach(r => {
+    dates.forEach(d => {
+      const s = computeBunkerDayStats(r, d);
+      s.reasons.forEach(reason => { totals[reason] = (totals[reason] || 0) + 1; });
+    });
+  });
+  return totals;
+}
+
+function renderNotRunningReasonFilters() {
+  const el = document.getElementById('notrunning-bunker-filter');
+  el.innerHTML = ['ALL', ...BUNKERS].map(r => `<button class="rfilter-chip ${notRunningBunkerFilter===r?'active':''}" onclick="setNotRunningFilter('${r}')">${r==='ALL'?'All Bunkers':r}</button>`).join('');
+}
+window.setNotRunningFilter = function(r) {
+  notRunningBunkerFilter = r;
+  const [from, to] = getAnalysisDateRange();
+  const dates = listDatesInRange(from, to);
+  renderNotRunningReasonFilters();
+  ensureCanvas('chart-notrunning-reason');
+  renderNotRunningReasonChart(dates);
+}
+
+function renderNotRunningReasonChart(dates) {
+  destroyChart('notRunningReason');
+  ensureCanvas('chart-notrunning-reason');
+  const bunkersToShow = notRunningBunkerFilter === 'ALL' ? BUNKERS : [notRunningBunkerFilter];
+  const combined = aggregateNotRunningReasons(bunkersToShow, dates);
+  const labels = Object.keys(combined);
+  const ctx = document.getElementById('chart-notrunning-reason').getContext('2d');
+  if (labels.length === 0) {
+    chartInstances.notRunningReason = new Chart(ctx, {
+      type: 'pie',
+      data: { labels: ['No reasons logged yet'], datasets: [{ data: [1], backgroundColor: ['#e5e7eb'] }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } }, tooltip: { enabled: false } }
+      },
+      plugins: [emptyChartOverlayPlugin('No reasons logged in this range yet')]
+    });
+    return;
+  }
+  const palette = ['#dc2626','#d97706','#2563eb','#7c3aed','#0891b2','#059669','#db2777','#6b7280'];
+  chartInstances.notRunningReason = new Chart(ctx, {
+    type: 'pie',
+    data: { labels, datasets: [{ data: labels.map(l => combined[l]), backgroundColor: labels.map((_,i) => palette[i % palette.length]) }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed} day${ctx.parsed===1?'':'s'}` } }
+      }
+    }
+  });
+}
+
+function renderSummaryTable(agg) {
+  const tbody = document.getElementById('analysis-summary-tbody');
+  tbody.innerHTML = BUNKERS.map(r => {
+    const a = agg[r];
+    const eff = a.booked > 0 ? Math.round((a.used/a.booked)*100) : 0;
+    const effClass = eff >= 85 ? 'eff-good' : (eff >= 60 ? 'eff-mid' : 'eff-poor');
+    let topReason = '—';
+    const entries = Object.entries(a.reasonCounts);
+    if (entries.length > 0) { entries.sort((x,y) => y[1]-x[1]); topReason = entries[0][0]; }
+    return `<tr>
+      <td style="font-weight:600">${r}</td>
+      <td>${a.booked > 0 ? fmt(a.booked) : '—'}</td>
+      <td>${a.used > 0 ? fmt(a.used) : '—'}</td>
+      <td>${a.down > 0 ? fmt(a.down) : '0m'}</td>
+      <td><span class="eff-pill ${effClass}">${a.booked>0 ? eff+'%' : 'No data'}</span></td>
+      <td>${topReason}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+function init() {
+  const today = todayStr();
+  document.getElementById('selected-date').value = today;
+  document.getElementById('booking-view-date').value = today;
+  // Set min date on booking date input
+  document.getElementById('book-date').min = today;
+  document.getElementById('today-label').textContent = new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  currentDate = today;
+  populateMonthSelects();
+  // Hydrate from the local baseline store FIRST, so anything you've saved
+  // shows up immediately on refresh — even before (or without) Firebase.
+  allData = loadLocalData();
+  allBookings = loadLocalBookings();
+  renderCards();
+  renderMonthly();
+  renderBookingCalendar();
+  const saved = localStorage.getItem('bunker_firebase_cfg');
+  if (saved) {
+    try {
+      const cfg = JSON.parse(saved);
+      if (document.getElementById('cfg-apiKey')) document.getElementById('cfg-apiKey').value = cfg.apiKey || '';
+      if (document.getElementById('cfg-projectId')) document.getElementById('cfg-projectId').value = cfg.projectId || '';
+      if (document.getElementById('cfg-dbUrl')) document.getElementById('cfg-dbUrl').value = cfg.databaseURL || '';
+      initFirebase(cfg);
+    } catch(e) { document.getElementById('firebase-banner').style.display = 'flex'; }
+  } else {
+    document.getElementById('firebase-banner').style.display = 'flex';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
